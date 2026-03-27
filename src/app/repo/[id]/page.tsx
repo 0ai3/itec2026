@@ -71,6 +71,9 @@ const getLanguageFromFilePath = (filePath: string | null) => {
   if (filePath.endsWith('.md')) {
     return 'markdown'
   }
+  if (filePath.endsWith('.cpp')) {
+    return 'cpp'
+  }
   return 'plaintext'
 }
 
@@ -107,6 +110,31 @@ const getRuntimeConfigForFilePath = (filePath: string | null) => {
     return {
       image: 'node:20-alpine',
       command: `echo ${JSON.stringify('JSX/TSX files require a project build step (e.g. npm run build).')}`,
+    }
+  }
+
+  // ADĂUGĂM SUPORT PENTRU C++
+  if (filePath.endsWith('.cpp') || filePath.endsWith('.cc') || filePath.endsWith('.cxx')) {
+    return {
+      image: 'gcc:latest',
+      // Compilează și rulează
+      command: `g++ ${JSON.stringify(filePath)} -o out_bin && ./out_bin`,
+    }
+  }
+
+  // ADĂUGĂM SUPORT PENTRU C
+  if (filePath.endsWith('.c')) {
+    return {
+      image: 'gcc:latest',
+      command: `gcc ${JSON.stringify(filePath)} -o out_bin && ./out_bin`,
+    }
+  }
+
+  // ADĂUGĂM SUPORT PENTRU JAVA
+  if (filePath.endsWith('.java')) {
+    return {
+      image: 'openjdk:21-jdk',
+      command: `java ${JSON.stringify(filePath)}`,
     }
   }
 
@@ -652,6 +680,11 @@ export default function RepoEditorPage() {
   const handleRunCommand = async () => {
     if (!ownerUid) {
       return
+    }
+
+    if (selectedFilePath) {
+      setRunOutput('Saving before execution...');
+      await handleSaveFile(); // Apelăm funcția de salvare care deja există
     }
 
     setIsRunningCommand(true)
