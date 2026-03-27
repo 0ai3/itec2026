@@ -17,6 +17,7 @@ import Navbar from '@/components/Navbar'
 import Editor from '@/components/editor'
 import { auth, db } from '@/lib/firebase'
 import SyncedTerminal from '@/components/synced-terminal'
+import RepoChat from '@/components/repo-chat'
 
 type InviteRecord = {
   email: string
@@ -235,11 +236,8 @@ export default function RepoEditorPage() {
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [isSavingFile, setIsSavingFile] = useState(false)
   const [fileMessage, setFileMessage] = useState<string | null>(null)
-
-  const [dockerImage, setDockerImage] = useState('python:3.11-alpine')
-  const [runCommand, setRunCommand] = useState('python main.py')
-  const [runOutput, setRunOutput] = useState('')
-  const [isRunningCommand, setIsRunningCommand] = useState(false)
+  const [editorReplaceToken, setEditorReplaceToken] = useState(0)
+  const [editorReplaceContent, setEditorReplaceContent] = useState('')
 
   useEffect(() => {
     if (!auth) {
@@ -694,57 +692,21 @@ export default function RepoEditorPage() {
     }
   }
 
-  const handleRunCommand = async () => {
-    if (!ownerUid) {
+  const handleImportCodeFromChat = (code: string) => {
+    if (!selectedFilePath) {
+      setErrorMessage('Select a file before importing code from chat.')
       return
     }
 
-    if (selectedFilePath) {
-      setRunOutput('Saving before execution...');
-      await handleSaveFile(); // Apelăm funcția de salvare care deja există
-    }
-
-    setIsRunningCommand(true)
-    setRunOutput('Running command...')
-
-    try {
-      const response = await fetch('/api/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ownerUid,
-          repoId,
-          image: dockerImage,
-          command: runCommand,
-        }),
-      })
-
-      const data = (await response.json()) as { output?: string; error?: string; exitCode?: number }
-      if (!response.ok) {
-        throw new Error(data.error || 'Execution failed')
-      }
-
-      const outputText = data.output?.trim() || '(no output)'
-      setRunOutput(`exit code: ${data.exitCode ?? 0}\n\n${outputText}`)
-    } catch (error) {
-      if (error instanceof Error) {
-        setRunOutput(error.message)
-      } else {
-        setRunOutput('Execution failed')
-      }
-    }
-
-    setIsRunningCommand(false)
+    setErrorMessage(null)
+    setSelectedFileContent(code)
+    setEditorReplaceContent(code)
+    setEditorReplaceToken((prev) => prev + 1)
+    setFileMessage('Imported code from AI chat. Save file to persist this change.')
   }
 
   const editorLanguage = useMemo(() => getLanguageFromFilePath(selectedFilePath), [selectedFilePath])
   const effectiveEditorRoom = `${collaborationRoomId}:${selectedFilePath ?? 'root'}`
-
-  useEffect(() => {
-    const runtime = getRuntimeConfigForFilePath(selectedFilePath)
-    setDockerImage(runtime.image)
-    setRunCommand(runtime.command)
-  }, [selectedFilePath])
 
   const runtimeDefaults = useMemo(
     () => getRuntimeConfigForFilePath(selectedFilePath),
@@ -900,6 +862,8 @@ export default function RepoEditorPage() {
                 language={editorLanguage}
                 initialCode={selectedFileContent}
                 onCodeChange={setSelectedFileContent}
+                replaceContentToken={editorReplaceToken}
+                replaceContentValue={editorReplaceContent}
               />
             ) : (
               <div className="h-full grid place-items-center text-sm text-gray-500">
@@ -914,6 +878,13 @@ export default function RepoEditorPage() {
             repoId={repoId}
             defaultImage={runtimeDefaults.image}
             defaultCommand={runtimeDefaults.command}
+          />
+
+          <RepoChat
+            language={editorLanguage}
+            filePath={selectedFilePath}
+            codeContext={selectedFileContent}
+            onImportCode={handleImportCodeFromChat}
           />
         </div>
       </section>

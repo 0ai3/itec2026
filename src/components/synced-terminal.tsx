@@ -22,6 +22,7 @@ const setYTextValue = (yText: import('yjs').Text, value: string) => {
 
 const isNodeCommand = (command: string) => /^(npm|npx|pnpm|yarn|node)\b/.test(command)
 const isPythonCommand = (command: string) => /^(python|python3|pip|pip3)\b/.test(command)
+const inputRequestPattern = /(EOFError|EOF when reading a line|No line found)/i
 
 const resolveExecutionImage = (imageValue: string, commandValue: string, defaultImageValue: string) => {
   const trimmedImage = imageValue.trim()
@@ -59,7 +60,10 @@ export default function SyncedTerminal({
   const [isRunning, setIsRunning] = useState(false)
   const [terminalError, setTerminalError] = useState<string | null>(null)
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
+  const [pendingInputCommand, setPendingInputCommand] = useState<string | null>(null)
+  const [pendingInputBuffer, setPendingInputBuffer] = useState('')
   const commandHistoryRef = useRef<string[]>([])
+  const lastRunCommandRef = useRef('')
   const commandInputRef = useRef<HTMLInputElement | null>(null)
   const isCommandInputFocusedRef = useRef(false)
 
@@ -243,6 +247,19 @@ export default function SyncedTerminal({
     setOutput(next)
   }, [])
 
+  const handleClearOutput = useCallback(() => {
+    const yOutput = yOutputRef.current
+    if (!yOutput) {
+      setOutput('')
+      return
+    }
+
+    suppressSyncRef.current = true
+    setYTextValue(yOutput, '')
+    suppressSyncRef.current = false
+    setOutput('')
+  }, [])
+
   const rememberCommand = useCallback((value: string) => {
     const normalized = value.trim()
     if (!normalized) {
@@ -254,25 +271,10 @@ export default function SyncedTerminal({
     commandHistoryRef.current = next.slice(-100)
   }, [])
 
-  const handleRunCode = useCallback(async () => {
-    if (!ownerUid) {
-      setTerminalError('Owner information missing for this repo.')
-      return
-    }
+  const commandNeedsInput = (text: string) => inputRequestPattern.test(text)
 
-    const commandValue = command.trim()
-    if (!commandValue) {
-      setTerminalError('Command is required')
-      return
-    }
-
-    setTerminalError(null)
-    setIsRunning(true)
-    setHistoryIndex(null)
-    rememberCommand(commandValue)
-    syncCommandToShared(commandValue)
-
-    try {
+  const runCommand = useCallback(
+    async (commandValue: string, stdinValue: string) => {
       const resolvedImage = resolveExecutionImage(image, commandValue, defaultImageRef.current)
       if (resolvedImage !== image) {
         handleImageChange(resolvedImage)
@@ -286,6 +288,7 @@ export default function SyncedTerminal({
           repoId,
           image: resolvedImage,
           command: commandValue,
+          stdin: stdinValue,
         }),
       })
 
@@ -295,20 +298,98 @@ export default function SyncedTerminal({
       }
 
       const outputText = data.output?.trim() || '(no output)'
-      appendOutput(`$ ${commandValue}\n[image: ${resolvedImage}]\nexit code: ${data.exitCode ?? 0}\n${outputText}`)
+      const stdinSummary = stdinValue ? '\n[stdin provided]' : ''
+      appendOutput(
+        `$ ${commandValue}\n[image: ${resolvedImage}]${stdinSummary}\nexit code: ${data.exitCode ?? 0}\n${outputText}`
+      )
+
+      if (commandNeedsInput(outputText)) {
+        setPendingInputCommand(commandValue)
+        setPendingInputBuffer(stdinValue)
+        appendOutput('↳ Program is waiting for input. Type a value and press Enter. Use /cancel to stop.')
+      } else {
+        setPendingInputCommand(null)
+        setPendingInputBuffer('')
+      }
+    },
+    [appendOutput, image, ownerUid, repoId]
+  )
+
+  const handleRunCode = useCallback(async () => {
+    if (!ownerUid) {
+      setTerminalError('Owner information missing for this repo.')
+      return
+    }
+
+    const typedCommand = command.trim()
+    const commandValue = typedCommand || lastRunCommandRef.current
+    if (!commandValue) {
+      setTerminalError('Command is required')
+      return
+    }
+
+    handleClearOutput()
+
+    if (pendingInputCommand) {
+      if (commandValue === '/cancel') {
+        setPendingInputCommand(null)
+        setPendingInputBuffer('')
+        handleCommandChange('')
+        syncCommandToShared('')
+        setTerminalError(null)
+        appendOutput('↳ Input cancelled.')
+        return
+      }
+
+      const mergedInput = pendingInputBuffer ? `${pendingInputBuffer}\n${commandValue}` : commandValue
+      setTerminalError(null)
+      setHistoryIndex(null)
+      appendOutput(`> ${commandValue}`)
       handleCommandChange('')
       syncCommandToShared('')
+      setIsRunning(true)
+
+      try {
+        await runCommand(pendingInputCommand, mergedInput)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Execution failed'
+        setTerminalError(message)
+        appendOutput(`$ ${pendingInputCommand}\nERROR: ${message}`)
+      } finally {
+        setIsRunning(false)
+        commandInputRef.current?.focus()
+      }
+      return
+    }
+
+    setPendingInputCommand(null)
+    setPendingInputBuffer('')
+    setTerminalError(null)
+    setIsRunning(true)
+    setHistoryIndex(null)
+    rememberCommand(commandValue)
+    lastRunCommandRef.current = commandValue
+    syncCommandToShared(commandValue)
+
+    try {
+      await runCommand(commandValue, '')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Execution failed'
       setTerminalError(message)
       appendOutput(`$ ${commandValue}\nERROR: ${message}`)
+    } finally {
+      setIsRunning(false)
+      commandInputRef.current?.focus()
     }
-
-    setIsRunning(false)
-    commandInputRef.current?.focus()
-  }, [appendOutput, command, image, ownerUid, repoId, rememberCommand])
+  }, [appendOutput, command, handleClearOutput, ownerUid, pendingInputBuffer, pendingInputCommand, rememberCommand, runCommand])
 
   const handleCommandKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault()
+      void handleRunCode()
+      return
+    }
+
     if (event.key === 'Enter') {
       event.preventDefault()
       void handleRunCode()
@@ -360,19 +441,6 @@ export default function SyncedTerminal({
     }
   }
 
-  const handleClearOutput = () => {
-    const yOutput = yOutputRef.current
-    if (!yOutput) {
-      setOutput('')
-      return
-    }
-
-    suppressSyncRef.current = true
-    setYTextValue(yOutput, '')
-    suppressSyncRef.current = false
-    setOutput('')
-  }
-
   return (
     <div className="border border-black/10 rounded-xl p-3 relative z-10">
       <div className="flex items-center justify-between mb-2">
@@ -381,16 +449,11 @@ export default function SyncedTerminal({
       </div>
 
       <div className="grid md:grid-cols-[220px_auto_auto] gap-2 items-center">
-        <input
-          value={image}
-          onChange={(event) => handleImageChange(event.target.value)}
-          placeholder="Container image (optional)"
-          className="border border-black/20 rounded px-3 py-2 text-sm"
-        />
+        
         <button
           type="button"
           onClick={handleRunCode}
-          disabled={isRunning || !ownerUid || !command.trim()}
+          disabled={isRunning || !ownerUid || (!command.trim() && !lastRunCommandRef.current)}
           className="bg-black text-white rounded px-4 py-2 text-sm disabled:opacity-60"
         >
           {isRunning ? 'Running...' : 'Run'}
@@ -426,7 +489,11 @@ export default function SyncedTerminal({
               isCommandInputFocusedRef.current = false
             }}
             onKeyDown={handleCommandKeyDown}
-            placeholder="Type any command in /workspace and press Enter"
+            placeholder={
+              pendingInputCommand
+                ? 'Program input mode: type value and press Enter (/cancel to stop)'
+                : 'Type any command in /workspace and press Enter'
+            }
             className="w-full bg-transparent text-sm outline-none placeholder:text-gray-500"
             autoCapitalize="off"
             autoCorrect="off"
@@ -434,6 +501,11 @@ export default function SyncedTerminal({
           />
         </div>
       </div>
+      <p className="mt-2 text-xs text-gray-500">
+        {pendingInputCommand
+          ? 'Input mode: Enter sends input to the running program. Type /cancel to exit input mode.'
+          : 'Press Enter to run. Use ↑/↓ for command history.'}
+      </p>
     </div>
   )
 }

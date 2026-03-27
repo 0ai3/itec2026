@@ -20,6 +20,8 @@ type EditorProps = {
 	language?: string
 	initialCode?: string
 	onCodeChange?: (code: string) => void
+	replaceContentToken?: number
+	replaceContentValue?: string
 }
 
 export default function Editor({
@@ -27,10 +29,15 @@ export default function Editor({
 	language = 'typescript',
 	initialCode = '',
 	onCodeChange,
+	replaceContentToken,
+	replaceContentValue,
 }: EditorProps) {
 	const transportRoomId = encodeURIComponent(roomId)
 	const initialCodeRef = useRef(initialCode)
 	const onCodeChangeRef = useRef<EditorProps['onCodeChange']>(onCodeChange)
+	const replaceContentValueRef = useRef(replaceContentValue)
+	const appliedReplaceTokenRef = useRef<number | null>(null)
+	const completionAbortRef = useRef<AbortController | null>(null)
 	const containerRef = useRef<HTMLDivElement | null>(null)
 	const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null)
 	const ydocRef = useRef<import('yjs').Doc | null>(null)
@@ -43,10 +50,37 @@ export default function Editor({
 	}, [onCodeChange])
 
 	useEffect(() => {
+		replaceContentValueRef.current = replaceContentValue
+	}, [replaceContentValue])
+
+	useEffect(() => {
+		if (typeof replaceContentToken !== 'number') {
+			return
+		}
+
+		if (appliedReplaceTokenRef.current === replaceContentToken) {
+			return
+		}
+
+		appliedReplaceTokenRef.current = replaceContentToken
+
+		const editor = editorRef.current
+		const model = editor?.getModel()
+		if (!editor || !model) {
+			return
+		}
+
+		const nextValue = replaceContentValueRef.current ?? ''
+		model.setValue(nextValue)
+		onCodeChangeRef.current?.(nextValue)
+	}, [replaceContentToken])
+
+	useEffect(() => {
 		let disposed = false
 		let removeStatusListener: (() => void) | null = null
 		let removeSyncListener: (() => void) | null = null
 		let removeContentListener: (() => void) | null = null
+		let removeInlineProvider: (() => void) | null = null
 		let initialSeedApplied = false
 
 		const setup = async () => {
@@ -101,8 +135,90 @@ export default function Editor({
 				language,
 				theme: 'vs-dark',
 				minimap: { enabled: false },
+				inlineSuggest: { enabled: true },
+				quickSuggestions: {
+					other: true,
+					comments: false,
+					strings: true,
+				},
 				automaticLayout: true,
 			})
+
+			const inlineProvider = monaco.languages.registerInlineCompletionsProvider(language, {
+				provideInlineCompletions: async (model, position) => {
+					const editor = editorRef.current
+					if (!editor) {
+						return { items: [] }
+					}
+
+					const beforeRange = new monaco.Range(1, 1, position.lineNumber, position.column)
+					const afterRange = new monaco.Range(
+						position.lineNumber,
+						position.column,
+						model.getLineCount(),
+						model.getLineMaxColumn(model.getLineCount())
+					)
+
+					const prefix = model.getValueInRange(beforeRange)
+					if (prefix.trim().length < 2) {
+						return { items: [] }
+					}
+
+					const suffix = model.getValueInRange(afterRange)
+
+					completionAbortRef.current?.abort()
+					const abortController = new AbortController()
+					completionAbortRef.current = abortController
+
+					try {
+						const response = await fetch('/api/ai-complete', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({
+								language,
+								prefix,
+								suffix,
+							}),
+							signal: abortController.signal,
+						})
+
+						if (!response.ok) {
+							return { items: [] }
+						}
+
+						const data = (await response.json()) as { completion?: string }
+						const completion = (data.completion ?? '').trimEnd()
+						if (!completion) {
+							return { items: [] }
+						}
+
+						return {
+							items: [
+								{
+									insertText: completion,
+									range: new monaco.Range(
+										position.lineNumber,
+										position.column,
+										position.lineNumber,
+										position.column
+									),
+								},
+							],
+						}
+					} catch {
+						return { items: [] }
+					}
+				},
+				disposeInlineCompletions: () => {
+					completionAbortRef.current?.abort()
+				},
+				freeInlineCompletions: () => {
+					completionAbortRef.current?.abort()
+				},
+			})
+			removeInlineProvider = () => {
+				inlineProvider.dispose()
+			}
 
 			const contentDisposable = editorRef.current.onDidChangeModelContent(() => {
 				onCodeChangeRef.current?.(editorRef.current?.getValue() ?? '')
@@ -171,6 +287,9 @@ export default function Editor({
 			removeStatusListener?.()
 			removeSyncListener?.()
 			removeContentListener?.()
+			removeInlineProvider?.()
+			completionAbortRef.current?.abort()
+			completionAbortRef.current = null
 			bindingRef.current?.destroy()
 			bindingRef.current = null
 			providerRef.current?.destroy()

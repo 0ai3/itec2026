@@ -7,10 +7,10 @@ First, run the development server:
 1) Copy environment variables:
 
 ```bash
-cp .env.example .env.local
+cp .env
 ```
 
-2) Fill Firebase keys in `.env.local`.
+2) Fill Firebase keys in `.env.`
 
 3) Run the development server:
 
@@ -54,6 +54,27 @@ npm run dev:collab
 Then open [http://localhost:3000](http://localhost:3000) in multiple tabs or browsers to edit the same Monaco document in real time.
 
 By default, the editor connects to `ws://localhost:1234` and uses room `monaco-room`.
+
+## AI code completions (Groq)
+
+The Monaco editor includes inline AI completions powered by Groq via a server route (`/api/ai-complete`).
+
+Setup:
+
+1. Add these values to `.env.local`:
+
+```bash
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=llama-3.3-70b-versatile
+```
+
+2. Restart the dev server.
+
+Notes:
+
+- The API key stays server-side only.
+- Completions are generated from editor context around the cursor.
+- Inline suggestions appear as ghost text in Monaco and can be accepted with `Tab`.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

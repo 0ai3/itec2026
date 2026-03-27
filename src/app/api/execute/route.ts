@@ -12,6 +12,7 @@ type ExecuteBody = {
     repoId?: string
     command?: string
     image?: string
+    stdin?: string
 }
 
 const getRequired = (value: string | undefined, name: string) => {
@@ -40,13 +41,13 @@ const pullImageIfMissing = async (image: string) => {
     }
 
     const pullStream = await new Promise<NodeJS.ReadableStream>((resolve, reject) => {
-        docker.pull(image, (error: any, stream: any) => {
+        docker.pull(image, (error: Error | null, stream: NodeJS.ReadableStream | undefined) => {
             if (error || !stream) {
                 reject(error ?? new Error('Unable to pull image'))
                 return
             }
             resolve(stream)
-        })
+    })
     })
 
     await new Promise<void>((resolve, reject) => {
@@ -65,8 +66,17 @@ const pullImageIfMissing = async (image: string) => {
     })
 }
 
+const buildShellCommand = (command: string, stdin: string) => {
+    if (!stdin) {
+        return command
+    }
+
+    const delimiter = '__COPILOT_STDIN__'
+    return `cat <<'${delimiter}' | ${command}\n${stdin}\n${delimiter}`
+}
+
 export async function POST(req: Request) {
-    let containerForCleanup: any = null; // Salvăm referința containerului pentru a-l putea opri în caz de timeout
+    let containerForCleanup: Docker.Container | null = null
 
     try {
         const body = (await req.json()) as ExecuteBody
@@ -74,6 +84,7 @@ export async function POST(req: Request) {
         const repoId = getRequired(body.repoId, 'repoId')
         const command = getRequired(body.command, 'command')
         const image = body.image?.trim() || 'python:3.11-alpine'
+        const stdin = typeof body.stdin === 'string' ? body.stdin : ''
 
         await ensureDockerAvailable()
         await pullImageIfMissing(image)
@@ -89,62 +100,52 @@ export async function POST(req: Request) {
             },
         })
 
-        // Definim limita de timp: 10 secunde
-        const TIMEOUT_MS = 10000;
-        let isTimeout = false;
+        const wrappedCommand = buildShellCommand(command, stdin)
+        const TIMEOUT_MS = 30_000
 
-        // 1. Definim execuția propriu-zisă
         const runPromise = async () => {
-            // Folosim docker.createContainer în loc de docker.run direct 
-            // pentru a avea referința containerului și a-l putea "omorî"
             containerForCleanup = await docker.createContainer({
                 Image: image,
-                Cmd: ['sh', '-lc', command],
+                Cmd: ['sh', '-lc', wrappedCommand],
                 WorkingDir: '/workspace',
                 HostConfig: {
                     AutoRemove: true,
                     Binds: [`${repoRoot}:/workspace`],
-                    Memory: 256 * 1024 * 1024, // Limită RAM
-                    NanoCpus: 2_000_000_000,   // Limită CPU
+                    Memory: 256 * 1024 * 1024,
+                    NanoCpus: 2_000_000_000,
                 },
-            });
+            })
 
-            // Atașăm stream-ul nostru
-            const stream = await containerForCleanup.attach({ stream: true, stdout: true, stderr: true });
-            containerForCleanup.modem.demuxStream(stream, outputStream, outputStream);
+            const stream = await containerForCleanup.attach({ stream: true, stdout: true, stderr: true })
+            containerForCleanup.modem.demuxStream(stream, outputStream, outputStream)
 
-            // Pornim și așteptăm să termine
-            await containerForCleanup.start();
-            const result = await containerForCleanup.wait();
-            return result;
-        };
+            await containerForCleanup.start()
+            return containerForCleanup.wait()
+        }
 
-        // 2. Definim cronometrul (Timeout)
-        const timeoutPromise = new Promise((_, reject) => {
+        const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(() => {
-                isTimeout = true;
-                reject(new Error(`Timeout: Execuția a durat mai mult de ${TIMEOUT_MS / 1000} secunde și a fost oprită.`));
-            }, TIMEOUT_MS);
-        });
+                reject(new Error(`Timeout: execution exceeded ${TIMEOUT_MS / 1000} seconds and was stopped.`))
+            }, TIMEOUT_MS)
+        })
 
-        // 3. Cursa: Care se termină prima?
-        const result: any = await Promise.race([runPromise(), timeoutPromise]);
+        const result = (await Promise.race([runPromise(), timeoutPromise])) as {
+            StatusCode?: number
+        }
 
-        const statusCode = result?.StatusCode ?? 0;
+        const statusCode = result?.StatusCode ?? 0
 
         return NextResponse.json({
             output: outputData.trim(),
             exitCode: statusCode,
         })
     } catch (error) {
-        // Dacă eroarea vine din Timeout, trebuie să forțăm oprirea containerului
         if (error instanceof Error && error.message.includes('Timeout') && containerForCleanup) {
-             try {
-                 await containerForCleanup.kill(); // Omorâm procesul blocat
-             } catch (killError) {
-                 console.error("Nu am putut omorî containerul blocat:", killError);
-             }
-        }
+            try {
+                await containerForCleanup.kill()
+            } catch {
+            }
+    }
 
         const message = error instanceof Error ? error.message : 'Execution failed'
         const status =
@@ -155,6 +156,6 @@ export async function POST(req: Request) {
                 : message.includes('Docker is not available')
                     ? 503
                     : 500
-        return NextResponse.json({ error: message, output: message }, { status }) // Am adăugat output: message pentru ca UI-ul să afișeze eroarea clar
+        return NextResponse.json({ error: message, output: message }, { status })
     }
 }
