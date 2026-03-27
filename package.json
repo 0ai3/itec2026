@@ -1,0 +1,41 @@
+{
+  "name": "itec2026",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "collab:server": "node ./server/yjs-websocket-server.mjs",
+    "dev:collab": "concurrently -n web,collab -c auto \"npm:dev\" \"npm:collab:server\"",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+<<<<<<< HEAD
+    "dockerode": "^4.0.10",
+=======
+    "concurrently": "^9.2.1",
+>>>>>>> df8a7935e0b886c1798345df2bb6b975743625fe
+    "monaco-editor": "^0.55.1",
+    "next": "16.2.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "ws": "^8.20.0",
+    "y-monaco": "^0.1.6",
+    "y-websocket": "^3.0.0",
+    "y-websocket-legacy": "npm:y-websocket@^1.5.4",
+    "yjs": "^13.6.30"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/dockerode": "^4.0.1",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "babel-plugin-react-compiler": "1.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
