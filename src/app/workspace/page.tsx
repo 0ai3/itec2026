@@ -296,6 +296,16 @@ export default function WorkspacePage() {
         createdAt: serverTimestamp(),
       })
 
+      await fetch('/api/repo-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'init',
+          ownerUid: user.uid,
+          repoId,
+        }),
+      })
+
       setRepoName('')
       const reloadedRepos = await getDocs(
         query(collection(db, 'users', user.uid, 'repos'), orderBy('createdAt', 'desc'))

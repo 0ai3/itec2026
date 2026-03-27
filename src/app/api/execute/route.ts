@@ -1,41 +1,123 @@
 import Docker from 'dockerode'
+import { Writable } from 'node:stream'
 import { NextResponse } from 'next/server'
-import { Writable } from 'stream';
+import { ensureRepoRoot, getRepoRootPath } from '@/lib/repo-storage'
 
-const docker = new Docker();
+export const runtime = 'nodejs'
+
+const docker = new Docker()
+
+type ExecuteBody = {
+    ownerUid?: string
+    repoId?: string
+    command?: string
+    image?: string
+}
+
+const getRequired = (value: string | undefined, name: string) => {
+    if (!value || !value.trim()) {
+        throw new Error(`Missing ${name}`)
+    }
+    return value.trim()
+}
+
+const ensureDockerAvailable = async () => {
+    try {
+        await docker.ping()
+    } catch (error) {
+        const details = error instanceof Error ? error.message : 'Docker daemon not reachable'
+        throw new Error(
+            `Docker is not available. Start Docker Desktop (or Docker daemon) and retry. Details: ${details}`
+        )
+    }
+}
+
+const pullImageIfMissing = async (image: string) => {
+    try {
+        await docker.getImage(image).inspect()
+        return
+    } catch {
+    }
+
+    const pullStream = await new Promise<NodeJS.ReadableStream>((resolve, reject) => {
+        docker.pull(image, (error, stream) => {
+            if (error || !stream) {
+                reject(error ?? new Error('Unable to pull image'))
+                return
+            }
+            resolve(stream)
+        })
+    })
+
+    await new Promise<void>((resolve, reject) => {
+        docker.modem.followProgress(
+            pullStream,
+            (error) => {
+                if (error) {
+                    reject(error)
+                    return
+                }
+                resolve()
+            },
+            () => {
+            }
+        )
+    })
+}
 
 export async function POST(req: Request) {
     try {
-        const { code } = await req.json();
+        const body = (await req.json()) as ExecuteBody
+        const ownerUid = getRequired(body.ownerUid, 'ownerUid')
+        const repoId = getRequired(body.repoId, 'repoId')
+        const command = getRequired(body.command, 'command')
+        const image = body.image?.trim() || 'python:3.11-alpine'
 
-        let outputData = '';
+        await ensureDockerAvailable()
+        await pullImageIfMissing(image)
+
+        await ensureRepoRoot(ownerUid, repoId)
+        const repoRoot = getRepoRootPath(ownerUid, repoId)
+
+        let outputData = ''
         const outputStream = new Writable({
-            write(chunk, enc, next) {
-                outputData += chunk.toString();
-                next();
-            }
-        });
+            write(chunk, _encoding, next) {
+                outputData += chunk.toString()
+                next()
+            },
+        })
 
-        const [result, container] = await docker.run(
-            'python:3.9-alpine',
-            ['python', '-c', code],
-            outputStream,{
-            HostConfig: {
-                AutoRemove: true,
-                Memory:  50 * 1024 * 1024,
-                NanoCpus: 1000000000,
+        const [result] = await docker.run(
+            image,
+            ['sh', '-lc', command],
+            outputStream,
+            {
+                WorkingDir: '/workspace',
+                HostConfig: {
+                    AutoRemove: true,
+                    Binds: [`${repoRoot}:/workspace`],
+                    Memory: 256 * 1024 * 1024,
+                    NanoCpus: 2_000_000_000,
+                },
             }
-        }
-        );
+        )
 
-        const logs = await container.logs({stdout:true, stderr: true});
+        const statusCode = (result as { StatusCode?: number }).StatusCode ?? 0
 
         return NextResponse.json({
-            output: outputData.trim()
-        });
+            output: outputData.trim(),
+            exitCode: statusCode,
+        })
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Execution failed'
+        const status =
+            message.includes('Missing ownerUid') ||
+            message.includes('Missing repoId') ||
+            message.includes('Missing command')
+                ? 400
+                : message.includes('Docker is not available')
+                    ? 503
+                    : 500
+        return NextResponse.json({ error: message }, { status })
     }
-    catch (error: any) {
-        console.error(error);
-        return NextResponse.json({error: 'a crapat executia'}, {status: 500});
-    }
-} 
+}

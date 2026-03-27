@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "concurrently": "^9.2.1",
+    "docker": "^1.0.0",
     "dockerode": "^4.0.10",
     "firebase": "^12.11.0",
     "monaco-editor": "^0.55.1",

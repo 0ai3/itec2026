@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 type Monaco = typeof import('monaco-editor')
 type Yjs = typeof import('yjs')
@@ -17,76 +17,37 @@ declare global {
 
 type EditorProps = {
 	roomId?: string
+	language?: string
+	initialCode?: string
+	onCodeChange?: (code: string) => void
 }
 
-export default function Editor({ roomId = 'monaco-room' }: EditorProps) {
+export default function Editor({
+	roomId = 'monaco-room',
+	language = 'typescript',
+	initialCode = '',
+	onCodeChange,
+}: EditorProps) {
 	const transportRoomId = encodeURIComponent(roomId)
+	const initialCodeRef = useRef(initialCode)
+	const onCodeChangeRef = useRef<EditorProps['onCodeChange']>(onCodeChange)
+	const suppressOnChangeRef = useRef(false)
 	const containerRef = useRef<HTMLDivElement | null>(null)
 	const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null)
 	const ydocRef = useRef<import('yjs').Doc | null>(null)
 	const providerRef = useRef<import('y-websocket').WebsocketProvider | null>(null)
 	const bindingRef = useRef<import('y-monaco').MonacoBinding | null>(null)
-	const runnerRef = useRef<HTMLIFrameElement | null>(null)
-	const [isMounted, setIsMounted] = useState(false)
-	const [output, setOutput] = useState<string[]>([])
 	const [connectionStatus, setConnectionStatus] = useState('connecting')
 
-	const handleRun = useCallback(() => {
-		const code = editorRef.current?.getValue()
-
-		if (!code) {
-			setOutput(['No code to run.'])
-			return
-		}
-
-		setOutput([])
-
-		const iframe = runnerRef.current
-		if (!iframe) {
-			setOutput(['Runner not ready.'])
-			return
-		}
-
-		const escapedCode = JSON.stringify(code)
-		iframe.srcdoc = `<!doctype html>
-<html>
-  <body>
-    <script>
-      const send = (type, args) => parent.postMessage({ source: 'monaco-runner', type, args }, '*');
-      const normalize = (arg) => {
-        if (typeof arg === 'string') return arg;
-        try { return JSON.stringify(arg); } catch { return String(arg); }
-      };
-      console.log = (...args) => send('log', args.map(normalize));
-      console.error = (...args) => send('error', args.map(normalize));
-      window.onerror = (message, source, lineno, colno) => {
-        send('error', [String(message) + ' at ' + String(lineno) + ':' + String(colno)]);
-      };
-      try {
-        const userCode = ${escapedCode};
-        new Function(userCode)();
-        send('done', ['Execution finished']);
-      } catch (error) {
-        const errorText = error instanceof Error ? error.stack || error.message : String(error);
-        send('error', [errorText]);
-      }
-    </script>
-  </body>
-</html>`
-	}, [])
-
-	const handleClear = useCallback(() => {
-		setOutput([])
-	}, [])
-
 	useEffect(() => {
-		setIsMounted(true)
-	}, [])
+		onCodeChangeRef.current = onCodeChange
+	}, [onCodeChange])
 
 	useEffect(() => {
 		let disposed = false
 		let removeStatusListener: (() => void) | null = null
 		let removeSyncListener: (() => void) | null = null
+		let removeContentListener: (() => void) | null = null
 
 		const setup = async () => {
 			if (!containerRef.current || editorRef.current) {
@@ -136,12 +97,22 @@ export default function Editor({ roomId = 'monaco-room' }: EditorProps) {
 			}
 
 			editorRef.current = monaco.editor.create(containerRef.current, {
-				value: '',
-				language: 'typescript',
+				value: initialCodeRef.current,
+				language,
 				theme: 'vs-dark',
 				minimap: { enabled: false },
 				automaticLayout: true,
 			})
+
+			const contentDisposable = editorRef.current.onDidChangeModelContent(() => {
+				if (suppressOnChangeRef.current) {
+					return
+				}
+				onCodeChangeRef.current?.(editorRef.current?.getValue() ?? '')
+			})
+			removeContentListener = () => {
+				contentDisposable.dispose()
+			}
 
 			const ydoc = new Y.Doc()
 			ydocRef.current = ydoc
@@ -198,40 +169,37 @@ export default function Editor({ roomId = 'monaco-room' }: EditorProps) {
 			disposed = true
 			removeStatusListener?.()
 			removeSyncListener?.()
+			removeContentListener?.()
 			bindingRef.current?.destroy()
 			bindingRef.current = null
 			providerRef.current?.destroy()
 			providerRef.current = null
 			ydocRef.current?.destroy()
 			ydocRef.current = null
-			editorRef.current?.dispose()
+			try {
+				editorRef.current?.getModel()?.dispose()
+				editorRef.current?.dispose()
+			} catch {
+			}
 			editorRef.current = null
 		}
-	}, [transportRoomId])
+	}, [transportRoomId, language])
 
 	useEffect(() => {
-		const onMessage = (event: MessageEvent) => {
-			const payload = event.data as
-				| { source?: string; type?: string; args?: string[] }
-				| undefined
-
-			if (payload?.source !== 'monaco-runner') {
-				return
-			}
-
-			const text = (payload.args ?? []).join(' ')
-			if (!text) {
-				return
-			}
-
-			setOutput((prev) => [...prev, payload.type === 'error' ? `Error: ${text}` : text])
+		const editor = editorRef.current
+		if (!editor) {
+			return
 		}
 
-		window.addEventListener('message', onMessage)
-		return () => {
-			window.removeEventListener('message', onMessage)
+		const currentValue = editor.getValue()
+		if (currentValue === initialCode) {
+			return
 		}
-	}, [])
+
+		suppressOnChangeRef.current = true
+		editor.setValue(initialCode)
+		suppressOnChangeRef.current = false
+	}, [initialCode])
 
 	return (
 		<main style={{ padding: 24 }}>
@@ -248,34 +216,6 @@ export default function Editor({ roomId = 'monaco-room' }: EditorProps) {
 				WebSocket: <strong>{process.env.NEXT_PUBLIC_YJS_WS_URL ?? 'ws://localhost:1234'}</strong>{' '}
 				| Status: <strong>{connectionStatus}</strong>
 			</p>
-			<div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-				<button
-					onClick={handleRun}
-					style={{
-						padding: '8px 12px',
-						borderRadius: 6,
-						border: '1px solid #444',
-						background: '#111',
-						color: '#fff',
-						cursor: 'pointer',
-					}}
-				>
-					Run code
-				</button>
-				<button
-					onClick={handleClear}
-					style={{
-						padding: '8px 12px',
-						borderRadius: 6,
-						border: '1px solid #444',
-						background: 'transparent',
-						color: '#fff',
-						cursor: 'pointer',
-					}}
-				>
-					Clear output
-				</button>
-			</div>
 			<div
 				ref={containerRef}
 				style={{
@@ -287,29 +227,6 @@ export default function Editor({ roomId = 'monaco-room' }: EditorProps) {
 					marginBottom: 12,
 				}}
 			/>
-			<section
-				style={{
-					border: '1px solid #333',
-					borderRadius: 8,
-					padding: 12,
-					minHeight: 120,
-					background: '#0a0a0a',
-					color: '#ddd',
-					fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-					fontSize: 13,
-					whiteSpace: 'pre-wrap',
-				}}
-			>
-				{output.length === 0 ? 'Output will appear here.' : output.join('\n')}
-			</section>
-			{isMounted ? (
-				<iframe
-					ref={runnerRef}
-					sandbox="allow-scripts"
-					title="Monaco code runner"
-					style={{ display: 'none' }}
-				/>
-			) : null}
 		</main>
 	)
 }
