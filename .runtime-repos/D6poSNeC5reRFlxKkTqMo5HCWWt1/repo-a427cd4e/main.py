@@ -1,2 +1,1 @@
-
-    print("Hello     from iTECify")
+print("Hello from iTECify")
