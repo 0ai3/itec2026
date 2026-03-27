@@ -16,6 +16,7 @@ export default function Page() {
 	const containerRef = useRef<HTMLDivElement | null>(null)
 	const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null)
 	const runnerRef = useRef<HTMLIFrameElement | null>(null)
+	const [isMounted, setIsMounted] = useState(false)
 	const [output, setOutput] = useState<string[]>([])
 
 	const handleRun = useCallback(() => {
@@ -64,6 +65,10 @@ export default function Page() {
 
 	const handleClear = useCallback(() => {
 		setOutput([])
+	}, [])
+
+	useEffect(() => {
+		setIsMounted(true)
 	}, [])
 
 	useEffect(() => {
@@ -215,12 +220,14 @@ export default function Page() {
 			>
 				{output.length === 0 ? 'Output will appear here.' : output.join('\n')}
 			</section>
-			<iframe
-				ref={runnerRef}
-				sandbox="allow-scripts"
-				title="Monaco code runner"
-				style={{ display: 'none' }}
-			/>
+			{isMounted ? (
+				<iframe
+					ref={runnerRef}
+					sandbox="allow-scripts"
+					title="Monaco code runner"
+					style={{ display: 'none' }}
+				/>
+			) : null}
 		</main>
 	)
 }
