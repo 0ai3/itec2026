@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { type ReactNode, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
 import { useRouter } from 'next/navigation'
 import { auth, firebaseConfigError } from '@/lib/firebase'
@@ -71,7 +71,7 @@ export default function FirebaseLoginGate() {
 			<header className="px-6 py-3 border-b border-black/10 flex items-center justify-between gap-3">
 				<p className="text-sm text-gray-600 truncate">Signed in as {user.email ?? 'Firebase user'}</p>
 				<div className="flex items-center gap-2">
-					<Link href="/" className="text-sm border border-black/20 rounded-md px-3 py-1.5">
+					<Link href="/workspace" className="text-sm border border-black/20 rounded-md px-3 py-1.5">
 						Home
 					</Link>
 					<Link href="/profile" className="text-sm border border-black/20 rounded-md px-3 py-1.5">

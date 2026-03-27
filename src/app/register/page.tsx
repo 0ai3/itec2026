@@ -27,7 +27,7 @@ export default function RegisterPage() {
 
 		const unsubscribe = onAuthStateChanged(auth, (user) => {
 			if (user) {
-				router.replace('/')
+				router.replace('/workspace')
 			}
 		})
 
@@ -47,7 +47,7 @@ export default function RegisterPage() {
 		setIsSubmitting(true)
 		try {
 			await createUserWithEmailAndPassword(auth, email.trim(), password)
-			router.replace('/')
+			router.replace('/workspace')
 		} catch (error) {
 			if (error instanceof Error) {
 				setErrorMessage(error.message)
@@ -70,7 +70,7 @@ export default function RegisterPage() {
 		setIsSubmitting(true)
 		try {
 			await signInWithPopup(auth, googleProvider)
-			router.replace('/')
+			router.replace('/workspace')
 		} catch (error) {
 			if (error instanceof Error) {
 				setErrorMessage(error.message)

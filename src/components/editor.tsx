@@ -15,7 +15,12 @@ declare global {
 	}
 }
 
-export default function Editor() {
+type EditorProps = {
+	roomId?: string
+}
+
+export default function Editor({ roomId = 'monaco-room' }: EditorProps) {
+	const transportRoomId = encodeURIComponent(roomId)
 	const containerRef = useRef<HTMLDivElement | null>(null)
 	const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null)
 	const ydocRef = useRef<import('yjs').Doc | null>(null)
@@ -142,8 +147,7 @@ export default function Editor() {
 			ydocRef.current = ydoc
 
 			const wsUrl = process.env.NEXT_PUBLIC_YJS_WS_URL ?? 'ws://localhost:1234'
-			const roomName = 'monaco-room'
-			const provider = new WebsocketProvider(wsUrl, roomName, ydoc)
+			const provider = new WebsocketProvider(wsUrl, transportRoomId, ydoc)
 			providerRef.current = provider
 			setConnectionStatus(
 				provider.wsconnected
@@ -203,7 +207,7 @@ export default function Editor() {
 			editorRef.current?.dispose()
 			editorRef.current = null
 		}
-	}, [])
+	}, [transportRoomId])
 
 	useEffect(() => {
 		const onMessage = (event: MessageEvent) => {
@@ -235,7 +239,10 @@ export default function Editor() {
 				Collaborative Monaco Editor (Yjs)
 			</h1>
 			<p style={{ marginBottom: 8 }}>
-				Room: <strong>monaco-room</strong>
+				Room: <strong>{roomId}</strong>
+			</p>
+			<p style={{ marginBottom: 8 }}>
+				Transport room: <strong>{transportRoomId}</strong>
 			</p>
 			<p style={{ marginBottom: 16 }}>
 				WebSocket: <strong>{process.env.NEXT_PUBLIC_YJS_WS_URL ?? 'ws://localhost:1234'}</strong>{' '}

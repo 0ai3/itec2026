@@ -64,7 +64,7 @@ export default function ProfilePage() {
 
 				<div className="flex items-center justify-between mb-6">
 					<h1 className="text-2xl font-semibold">Profile</h1>
-					<Link href="/" className="text-sm underline">
+					<Link href="/workspace" className="text-sm underline">
 						Back to editor
 					</Link>
 				</div>
