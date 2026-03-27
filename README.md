@@ -4,6 +4,16 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 First, run the development server:
 
+1) Copy environment variables:
+
+```bash
+cp .env.example .env.local
+```
+
+2) Fill Firebase keys in `.env.local`.
+
+3) Run the development server:
+
 ```bash
 npm run dev
 # or
@@ -16,6 +26,23 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Authentication features
+
+Implemented flows:
+
+- Email/password register and login
+- Google sign-in/register
+- Email verification as second step before editor access
+- Password reset by email
+- Profile page with username update and profile picture upload
+
+Firebase console setup required:
+
+1. Enable **Authentication > Email/Password** provider.
+2. Enable **Authentication > Google** provider.
+3. Add your local auth domain (usually `localhost`) to authorized domains.
+4. Ensure **Storage** is enabled for profile picture upload.
+
 ## Collaborative editor (Yjs + WebSocket)
 
 Run both Next.js and the Yjs WebSocket backend together:
@@ -27,12 +54,6 @@ npm run dev:collab
 Then open [http://localhost:3000](http://localhost:3000) in multiple tabs or browsers to edit the same Monaco document in real time.
 
 By default, the editor connects to `ws://localhost:1234` and uses room `monaco-room`.
-
-Optional environment variable:
-
-```bash
-NEXT_PUBLIC_YJS_WS_URL=ws://localhost:1234 npm run dev
-```
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
