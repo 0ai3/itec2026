@@ -31,7 +31,6 @@ export default function Editor({
 	const transportRoomId = encodeURIComponent(roomId)
 	const initialCodeRef = useRef(initialCode)
 	const onCodeChangeRef = useRef<EditorProps['onCodeChange']>(onCodeChange)
-	const suppressOnChangeRef = useRef(false)
 	const containerRef = useRef<HTMLDivElement | null>(null)
 	const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null)
 	const ydocRef = useRef<import('yjs').Doc | null>(null)
@@ -48,6 +47,7 @@ export default function Editor({
 		let removeStatusListener: (() => void) | null = null
 		let removeSyncListener: (() => void) | null = null
 		let removeContentListener: (() => void) | null = null
+		let initialSeedApplied = false
 
 		const setup = async () => {
 			if (!containerRef.current || editorRef.current) {
@@ -97,7 +97,7 @@ export default function Editor({
 			}
 
 			editorRef.current = monaco.editor.create(containerRef.current, {
-				value: initialCodeRef.current,
+				value: '',
 				language,
 				theme: 'vs-dark',
 				minimap: { enabled: false },
@@ -105,9 +105,6 @@ export default function Editor({
 			})
 
 			const contentDisposable = editorRef.current.onDidChangeModelContent(() => {
-				if (suppressOnChangeRef.current) {
-					return
-				}
 				onCodeChangeRef.current?.(editorRef.current?.getValue() ?? '')
 			})
 			removeContentListener = () => {
@@ -139,6 +136,10 @@ export default function Editor({
 			const updateSync = (isSynced: boolean) => {
 				if (isSynced) {
 					setConnectionStatus('connected')
+					if (!initialSeedApplied && yText.length === 0 && initialCodeRef.current) {
+						yText.insert(0, initialCodeRef.current)
+						initialSeedApplied = true
+					}
 				}
 			}
 			provider.on('sync', updateSync)
@@ -184,22 +185,6 @@ export default function Editor({
 			editorRef.current = null
 		}
 	}, [transportRoomId, language])
-
-	useEffect(() => {
-		const editor = editorRef.current
-		if (!editor) {
-			return
-		}
-
-		const currentValue = editor.getValue()
-		if (currentValue === initialCode) {
-			return
-		}
-
-		suppressOnChangeRef.current = true
-		editor.setValue(initialCode)
-		suppressOnChangeRef.current = false
-	}, [initialCode])
 
 	return (
 		<main style={{ padding: 24 }}>
