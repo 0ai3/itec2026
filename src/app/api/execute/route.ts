@@ -40,7 +40,7 @@ const pullImageIfMissing = async (image: string) => {
     }
 
     const pullStream = await new Promise<NodeJS.ReadableStream>((resolve, reject) => {
-        docker.pull(image, (error, stream) => {
+        docker.pull(image, (error: Error | null, stream: NodeJS.ReadableStream | undefined) => {
             if (error || !stream) {
                 reject(error ?? new Error('Unable to pull image'))
                 return

@@ -140,6 +140,10 @@ export default function WorkspacePage() {
               return repo
             }
 
+            if (!db) {
+              return repo
+            }
+
             let resolvedOwnerName: string | undefined
             let resolvedOwnerEmail: string | undefined
 
