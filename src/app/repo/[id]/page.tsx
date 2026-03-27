@@ -15,8 +15,8 @@ import {
 import { onAuthStateChanged, type User } from 'firebase/auth'
 import Navbar from '@/components/Navbar'
 import Editor from '@/components/editor'
-import SyncedTerminal from '@/components/synced-terminal'
 import { auth, db } from '@/lib/firebase'
+import SyncedTerminal from '@/components/synced-terminal'
 
 type InviteRecord = {
   email: string
@@ -235,6 +235,11 @@ export default function RepoEditorPage() {
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [isSavingFile, setIsSavingFile] = useState(false)
   const [fileMessage, setFileMessage] = useState<string | null>(null)
+
+  const [dockerImage, setDockerImage] = useState('python:3.11-alpine')
+  const [runCommand, setRunCommand] = useState('python main.py')
+  const [runOutput, setRunOutput] = useState('')
+  const [isRunningCommand, setIsRunningCommand] = useState(false)
 
   useEffect(() => {
     if (!auth) {
@@ -734,11 +739,17 @@ export default function RepoEditorPage() {
 
   const editorLanguage = useMemo(() => getLanguageFromFilePath(selectedFilePath), [selectedFilePath])
   const effectiveEditorRoom = `${collaborationRoomId}:${selectedFilePath ?? 'root'}`
+
+  useEffect(() => {
+    const runtime = getRuntimeConfigForFilePath(selectedFilePath)
+    setDockerImage(runtime.image)
+    setRunCommand(runtime.command)
+  }, [selectedFilePath])
+
   const runtimeDefaults = useMemo(
     () => getRuntimeConfigForFilePath(selectedFilePath),
     [selectedFilePath]
   )
-
   if (isCheckingAccess) {
     return (
       <main className="flex-1 flex flex-col">
