@@ -4,7 +4,12 @@ import Navbar from "@/components/Navbar";
 export default function Page() {
   const repos = [
     { name: "ai-editor", branch: "main", commits: 18, status: "Deploying" },
-    { name: "collab/realtime", branch: "develop", commits: 9, status: "Passing" },
+    {
+      name: "collab/realtime",
+      branch: "develop",
+      commits: 9,
+      status: "Passing",
+    },
     { name: "design-system", branch: "main", commits: 24, status: "Queued" },
   ];
 
@@ -141,19 +146,27 @@ export default function Page() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-[#30363d]">13</span>
-                  <span className="pl-5 text-[#8b949e]">return &lt;Layout chrome="github"&gt;</span>
+                  <span className="pl-5 text-[#8b949e]">
+                    return &lt;Layout chrome="github"&gt;
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-[#30363d]">14</span>
-                  <span className="pl-5">&lt;Panel title="Pipelines" status="passing" /&gt;</span>
+                  <span className="pl-5">
+                    &lt;Panel title="Pipelines" status="passing" /&gt;
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-[#30363d]">15</span>
-                  <span className="pl-5">&lt;Panel title="Repos" status="synced" /&gt;</span>
+                  <span className="pl-5">
+                    &lt;Panel title="Repos" status="synced" /&gt;
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-[#30363d]">16</span>
-                  <span className="pl-5">&lt;Panel title="Editor" status="live" /&gt;</span>
+                  <span className="pl-5">
+                    &lt;Panel title="Editor" status="live" /&gt;
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-[#30363d]">17</span>
@@ -179,7 +192,9 @@ export default function Page() {
                   Repos
                 </p>
                 <p className="text-lg font-semibold text-white">Synced</p>
-                <p className="text-xs text-[#8b949e]">Branch main · 12 commits</p>
+                <p className="text-xs text-[#8b949e]">
+                  Branch main · 12 commits
+                </p>
               </div>
             </div>
           </div>
@@ -205,7 +220,9 @@ export default function Page() {
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Live activity</h2>
+              <h2 className="text-lg font-semibold text-white">
+                Live activity
+              </h2>
               <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
                 Stream
               </span>

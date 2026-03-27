@@ -57,7 +57,9 @@ export default function SettingsPage() {
               <p className="text-xs uppercase tracking-wide text-[#8b949e]">
                 Settings
               </p>
-              <h1 className="text-2xl font-semibold text-white">Workspace controls</h1>
+              <h1 className="text-2xl font-semibold text-white">
+                Workspace controls
+              </h1>
               <p className="text-xs text-[#8b949e]">
                 {user?.email ?? "Signed out"}
               </p>
@@ -79,8 +81,12 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">Account</p>
-                  <h2 className="text-lg font-semibold text-white">Profile & identity</h2>
+                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">
+                    Account
+                  </p>
+                  <h2 className="text-lg font-semibold text-white">
+                    Profile & identity
+                  </h2>
                 </div>
                 <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
                   Connected to GitHub
@@ -109,15 +115,21 @@ export default function SettingsPage() {
 
               <div className="mt-4 grid gap-3 md:grid-cols-3 text-sm">
                 <div className="rounded-lg border border-[#30363d] bg-[#0a0f16] p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-[#8b949e]">Org role</p>
+                  <p className="text-[11px] uppercase tracking-wide text-[#8b949e]">
+                    Org role
+                  </p>
                   <p className="text-white">Maintainer</p>
                 </div>
                 <div className="rounded-lg border border-[#30363d] bg-[#0a0f16] p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-[#8b949e]">Access</p>
+                  <p className="text-[11px] uppercase tracking-wide text-[#8b949e]">
+                    Access
+                  </p>
                   <p className="text-white">Contributor</p>
                 </div>
                 <div className="rounded-lg border border-[#30363d] bg-[#0a0f16] p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-[#8b949e]">Region</p>
+                  <p className="text-[11px] uppercase tracking-wide text-[#8b949e]">
+                    Region
+                  </p>
                   <p className="text-white">EU-West</p>
                 </div>
               </div>
@@ -126,8 +138,12 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">Workspace</p>
-                  <h2 className="text-lg font-semibold text-white">Editor defaults</h2>
+                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">
+                    Workspace
+                  </p>
+                  <h2 className="text-lg font-semibold text-white">
+                    Editor defaults
+                  </h2>
                 </div>
                 <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
                   Applied on launch
@@ -158,7 +174,8 @@ export default function SettingsPage() {
                 <div className="space-y-2">
                   <p className="text-[#c9d1d9]">Code intelligence</p>
                   <div className="rounded-md border border-[#30363d] bg-[#0a0f16] p-3 text-xs text-[#c9d1d9]">
-                    Inline suggestions, symbol index, and multi-repo search are enabled.
+                    Inline suggestions, symbol index, and multi-repo search are
+                    enabled.
                   </div>
                 </div>
 
@@ -202,7 +219,9 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">Notifications</p>
+                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">
+                    Notifications
+                  </p>
                   <h2 className="text-lg font-semibold text-white">Signals</h2>
                 </div>
                 <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
@@ -211,25 +230,31 @@ export default function SettingsPage() {
               </div>
 
               <div className="grid gap-3 md:grid-cols-2 text-sm">
-                {["deploys", "pullRequests", "mentions", "outages"].map((key) => (
-                  <label
-                    key={key}
-                    className="flex items-center justify-between rounded-md border border-[#30363d] bg-[#0a0f16] px-3 py-2"
-                  >
-                    <span className="capitalize text-white">{key.replace(/([A-Z])/g, " $1")}</span>
-                    <input
-                      type="checkbox"
-                      checked={notifications[key as keyof typeof notifications]}
-                      onChange={(e) =>
-                        setNotifications((prev) => ({
-                          ...prev,
-                          [key]: e.target.checked,
-                        }))
-                      }
-                      className="h-4 w-4"
-                    />
-                  </label>
-                ))}
+                {["deploys", "pullRequests", "mentions", "outages"].map(
+                  (key) => (
+                    <label
+                      key={key}
+                      className="flex items-center justify-between rounded-md border border-[#30363d] bg-[#0a0f16] px-3 py-2"
+                    >
+                      <span className="capitalize text-white">
+                        {key.replace(/([A-Z])/g, " $1")}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={
+                          notifications[key as keyof typeof notifications]
+                        }
+                        onChange={(e) =>
+                          setNotifications((prev) => ({
+                            ...prev,
+                            [key]: e.target.checked,
+                          }))
+                        }
+                        className="h-4 w-4"
+                      />
+                    </label>
+                  ),
+                )}
               </div>
             </div>
           </div>
@@ -238,8 +263,12 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">Security</p>
-                  <h3 className="text-lg font-semibold text-white">Access control</h3>
+                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">
+                    Security
+                  </p>
+                  <h3 className="text-lg font-semibold text-white">
+                    Access control
+                  </h3>
                 </div>
                 <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
                   Identity
@@ -249,7 +278,9 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between rounded-md border border-[#30363d] bg-[#0a0f16] px-3 py-2">
                   <div>
                     <p className="text-white">Two-factor auth</p>
-                    <p className="text-xs text-[#8b949e]">Protect workspace access</p>
+                    <p className="text-xs text-[#8b949e]">
+                      Protect workspace access
+                    </p>
                   </div>
                   <button
                     onClick={() => setTwoFA((prev) => !prev)}
@@ -263,7 +294,8 @@ export default function SettingsPage() {
                   </button>
                 </div>
                 <div className="rounded-md border border-[#30363d] bg-[#0a0f16] px-3 py-3 text-xs text-[#c9d1d9]">
-                  Active sessions: 3 · Last sign-in: 2h ago · SSO enforced for org members.
+                  Active sessions: 3 · Last sign-in: 2h ago · SSO enforced for
+                  org members.
                 </div>
               </div>
             </div>
@@ -271,8 +303,12 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">Pipelines</p>
-                  <h3 className="text-lg font-semibold text-white">CI defaults</h3>
+                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">
+                    Pipelines
+                  </p>
+                  <h3 className="text-lg font-semibold text-white">
+                    CI defaults
+                  </h3>
                 </div>
                 <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
                   GH Actions
@@ -281,15 +317,21 @@ export default function SettingsPage() {
               <div className="space-y-3 text-sm">
                 <div className="flex items-center justify-between rounded-md border border-[#30363d] bg-[#0a0f16] px-3 py-2">
                   <span className="text-white">Default branch</span>
-                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">main</span>
+                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">
+                    main
+                  </span>
                 </div>
                 <div className="flex items-center justify-between rounded-md border border-[#30363d] bg-[#0a0f16] px-3 py-2">
                   <span className="text-white">Concurrency</span>
-                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">4 runners</span>
+                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">
+                    4 runners
+                  </span>
                 </div>
                 <div className="flex items-center justify-between rounded-md border border-[#30363d] bg-[#0a0f16] px-3 py-2">
                   <span className="text-white">Secrets</span>
-                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">Vault managed</span>
+                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">
+                    Vault managed
+                  </span>
                 </div>
               </div>
             </div>
@@ -297,8 +339,12 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">Integrations</p>
-                  <h3 className="text-lg font-semibold text-white">Connected apps</h3>
+                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">
+                    Integrations
+                  </p>
+                  <h3 className="text-lg font-semibold text-white">
+                    Connected apps
+                  </h3>
                 </div>
                 <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
                   Syncing
@@ -307,15 +353,21 @@ export default function SettingsPage() {
               <div className="space-y-3 text-sm">
                 <div className="flex items-center justify-between rounded-md border border-[#30363d] bg-[#0a0f16] px-3 py-2">
                   <span className="text-white">GitHub</span>
-                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">Connected</span>
+                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">
+                    Connected
+                  </span>
                 </div>
                 <div className="flex items-center justify-between rounded-md border border-[#30363d] bg-[#0a0f16] px-3 py-2">
                   <span className="text-white">Slack</span>
-                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">Optional</span>
+                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">
+                    Optional
+                  </span>
                 </div>
                 <div className="flex items-center justify-between rounded-md border border-[#30363d] bg-[#0a0f16] px-3 py-2">
                   <span className="text-white">Linear</span>
-                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">Connected</span>
+                  <span className="rounded-md bg-[#0f1622] px-3 py-1 text-[#8b949e]">
+                    Connected
+                  </span>
                 </div>
               </div>
             </div>
@@ -323,8 +375,12 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">Danger zone</p>
-                  <h3 className="text-lg font-semibold text-white">Risky actions</h3>
+                  <p className="text-xs uppercase tracking-wide text-[#8b949e]">
+                    Danger zone
+                  </p>
+                  <h3 className="text-lg font-semibold text-white">
+                    Risky actions
+                  </h3>
                 </div>
                 <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
                   Handle carefully

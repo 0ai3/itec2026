@@ -66,7 +66,7 @@ export default function ProfilePage() {
       tone: "#58a6ff",
     },
     {
-      title: "Created repository \"ai-editor\"",
+      title: 'Created repository "ai-editor"',
       time: "1h ago",
       tone: "#3fb950",
     },
@@ -84,7 +84,11 @@ export default function ProfilePage() {
 
   const repos = [
     { name: "ai-editor", desc: "VS Code style editor", status: "Deploying" },
-    { name: "realtime-collab", desc: "Live coding environment", status: "Passing" },
+    {
+      name: "realtime-collab",
+      desc: "Live coding environment",
+      status: "Passing",
+    },
     { name: "ai-assistant", desc: "Coding AI helper", status: "Queued" },
     { name: "components-ui", desc: "Shared UI library", status: "Synced" },
   ];
@@ -236,7 +240,9 @@ export default function ProfilePage() {
 
             <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Repositories</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  Repositories
+                </h2>
                 <Link
                   href="/workspace"
                   className="text-xs font-semibold text-[#58a6ff] hover:text-[#79c0ff]"
@@ -321,7 +327,9 @@ export default function ProfilePage() {
                 ) : null}
 
                 {message && (
-                  <p className="text-sm font-semibold text-[#3fb950]">{message}</p>
+                  <p className="text-sm font-semibold text-[#3fb950]">
+                    {message}
+                  </p>
                 )}
 
                 {errorMessage && (
