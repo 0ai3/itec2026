@@ -1,5 +1,5 @@
 import Editor from "@/components/editor";    
-import FirebaseLoginGate from "@/components/firebase-login-gate";   
+import FirebaseLoginGate from "@/components/Navbar";   
 export default function Page() {
     return (
         <FirebaseLoginGate>

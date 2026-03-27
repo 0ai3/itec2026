@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { type FormEvent, useEffect, useState } from 'react'
 import { onAuthStateChanged, updateProfile, type User } from 'firebase/auth'
-import FirebaseLoginGate from '@/components/firebase-login-gate'
+import FirebaseLoginGate from '@/components/Navbar'
 import { auth } from '@/lib/firebase'
 
 export default function ProfilePage() {
