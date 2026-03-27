@@ -258,36 +258,41 @@ export default function RepoEditorPage() {
             ownerEmail?: string
           }
 
-          const effectiveOwnerUid =
-            myRepoData.role === 'collaborator' && myRepoData.ownerUid ? myRepoData.ownerUid : user.uid
-          const ownerView = effectiveOwnerUid === user.uid
+          const isLegacyCollaboratorWithoutOwner =
+            myRepoData.role === 'collaborator' && !myRepoData.ownerUid
 
-          setRepoName(myRepoData.name ?? repoId)
-          setOwnerUid(effectiveOwnerUid)
-          setOwnerName(myRepoData.ownerName ?? null)
-          setOwnerEmail(myRepoData.ownerEmail ?? user.email ?? null)
-          setIsOwner(ownerView)
-          setCollaborationRoomId(`${effectiveOwnerUid}:${repoId}`)
+          if (!isLegacyCollaboratorWithoutOwner) {
+            const effectiveOwnerUid =
+              myRepoData.role === 'collaborator' && myRepoData.ownerUid ? myRepoData.ownerUid : user.uid
+            const ownerView = effectiveOwnerUid === user.uid
 
-          if (ownerView) {
-            const invitesSnapshot = await getDocs(
-              collection(db, 'users', effectiveOwnerUid, 'repos', repoId, 'invites')
-            )
-            setInvites(
-              invitesSnapshot.docs.map((inviteDoc) => {
-                const inviteData = inviteDoc.data() as InviteRecord
-                return {
-                  email: inviteData.email,
-                  status: inviteData.status,
-                }
-              })
-            )
-          } else {
-            setInvites([])
+            setRepoName(myRepoData.name ?? repoId)
+            setOwnerUid(effectiveOwnerUid)
+            setOwnerName(myRepoData.ownerName ?? null)
+            setOwnerEmail(myRepoData.ownerEmail ?? user.email ?? null)
+            setIsOwner(ownerView)
+            setCollaborationRoomId(`${effectiveOwnerUid}:${repoId}`)
+
+            if (ownerView) {
+              const invitesSnapshot = await getDocs(
+                collection(db, 'users', effectiveOwnerUid, 'repos', repoId, 'invites')
+              )
+              setInvites(
+                invitesSnapshot.docs.map((inviteDoc) => {
+                  const inviteData = inviteDoc.data() as InviteRecord
+                  return {
+                    email: inviteData.email,
+                    status: inviteData.status,
+                  }
+                })
+              )
+            } else {
+              setInvites([])
+            }
+
+            setIsCheckingAccess(false)
+            return
           }
-
-          setIsCheckingAccess(false)
-          return
         }
 
         const repoResults = await getDocs(collectionGroup(db, 'repos'))
@@ -371,6 +376,17 @@ export default function RepoEditorPage() {
         setOwnerEmail(matchedRepo.ownerEmail ?? null)
         setIsOwner(matchedRepo.ownerView)
         setCollaborationRoomId(`${matchedRepo.ownerId}:${repoId}`)
+
+        await setDoc(
+          doc(db, 'users', user.uid, 'repos', repoId),
+          {
+            role: matchedRepo.ownerView ? 'owner' : 'collaborator',
+            ownerUid: matchedRepo.ownerId,
+            ownerName: matchedRepo.ownerName ?? null,
+            ownerEmail: matchedRepo.ownerEmail ?? null,
+          },
+          { merge: true }
+        )
 
         if (matchedRepo.ownerView) {
           const invitesSnapshot = await getDocs(
