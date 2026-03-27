@@ -15,6 +15,7 @@ import {
 import { onAuthStateChanged, type User } from 'firebase/auth'
 import Navbar from '@/components/Navbar'
 import Editor from '@/components/editor'
+import SyncedTerminal from '@/components/synced-terminal'
 import { auth, db } from '@/lib/firebase'
 
 type InviteRecord = {
@@ -206,11 +207,6 @@ export default function RepoEditorPage() {
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [isSavingFile, setIsSavingFile] = useState(false)
   const [fileMessage, setFileMessage] = useState<string | null>(null)
-
-  const [dockerImage, setDockerImage] = useState('python:3.11-alpine')
-  const [runCommand, setRunCommand] = useState('python main.py')
-  const [runOutput, setRunOutput] = useState('')
-  const [isRunningCommand, setIsRunningCommand] = useState(false)
 
   useEffect(() => {
     if (!auth) {
@@ -665,52 +661,12 @@ export default function RepoEditorPage() {
     }
   }
 
-  const handleRunCommand = async () => {
-    if (!ownerUid) {
-      return
-    }
-
-    setIsRunningCommand(true)
-    setRunOutput('Running command...')
-
-    try {
-      const response = await fetch('/api/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ownerUid,
-          repoId,
-          image: dockerImage,
-          command: runCommand,
-        }),
-      })
-
-      const data = (await response.json()) as { output?: string; error?: string; exitCode?: number }
-      if (!response.ok) {
-        throw new Error(data.error || 'Execution failed')
-      }
-
-      const outputText = data.output?.trim() || '(no output)'
-      setRunOutput(`exit code: ${data.exitCode ?? 0}\n\n${outputText}`)
-    } catch (error) {
-      if (error instanceof Error) {
-        setRunOutput(error.message)
-      } else {
-        setRunOutput('Execution failed')
-      }
-    }
-
-    setIsRunningCommand(false)
-  }
-
   const editorLanguage = useMemo(() => getLanguageFromFilePath(selectedFilePath), [selectedFilePath])
   const effectiveEditorRoom = `${collaborationRoomId}:${selectedFilePath ?? 'root'}`
-
-  useEffect(() => {
-    const runtime = getRuntimeConfigForFilePath(selectedFilePath)
-    setDockerImage(runtime.image)
-    setRunCommand(runtime.command)
-  }, [selectedFilePath])
+  const runtimeDefaults = useMemo(
+    () => getRuntimeConfigForFilePath(selectedFilePath),
+    [selectedFilePath]
+  )
 
   if (isCheckingAccess) {
     return (
@@ -870,34 +826,13 @@ export default function RepoEditorPage() {
             )}
           </div>
 
-          <div className="border border-black/10 rounded-xl p-3">
-            <h3 className="font-semibold mb-2">Run in Docker</h3>
-            <div className="grid md:grid-cols-[220px_1fr_auto] gap-2 items-center">
-              <input
-                value={dockerImage}
-                onChange={(event) => setDockerImage(event.target.value)}
-                placeholder="python:3.11-alpine"
-                className="border border-black/20 rounded px-3 py-2 text-sm"
-              />
-              <input
-                value={runCommand}
-                onChange={(event) => setRunCommand(event.target.value)}
-                placeholder="python main.py"
-                className="border border-black/20 rounded px-3 py-2 text-sm"
-              />
-              <button
-                type="button"
-                onClick={handleRunCommand}
-                disabled={isRunningCommand || !ownerUid}
-                className="bg-black text-white rounded px-4 py-2 text-sm disabled:opacity-60"
-              >
-                {isRunningCommand ? 'Running...' : 'Run code'}
-              </button>
-            </div>
-            <pre className="mt-3 text-xs bg-black text-gray-100 p-3 rounded overflow-auto min-h-28 whitespace-pre-wrap">
-              {runOutput || 'Run output will appear here.'}
-            </pre>
-          </div>
+          <SyncedTerminal
+            roomId={collaborationRoomId}
+            ownerUid={ownerUid}
+            repoId={repoId}
+            defaultImage={runtimeDefaults.image}
+            defaultCommand={runtimeDefaults.command}
+          />
         </div>
       </section>
     </main>

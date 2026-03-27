@@ -14,6 +14,26 @@ type ExecuteBody = {
     image?: string
 }
 
+const isNodeCommand = (command: string) => /^(npm|npx|pnpm|yarn|node)\b/.test(command)
+const isPythonCommand = (command: string) => /^(python|python3|pip|pip3)\b/.test(command)
+
+const resolveImage = (imageValue: string | undefined, commandValue: string) => {
+    const trimmedImage = imageValue?.trim()
+    if (trimmedImage) {
+        return trimmedImage
+    }
+
+    if (isNodeCommand(commandValue)) {
+        return 'node:20-alpine'
+    }
+
+    if (isPythonCommand(commandValue)) {
+        return 'python:3.11-alpine'
+    }
+
+    return 'alpine:3.20'
+}
+
 const getRequired = (value: string | undefined, name: string) => {
     if (!value || !value.trim()) {
         throw new Error(`Missing ${name}`)
@@ -71,7 +91,7 @@ export async function POST(req: Request) {
         const ownerUid = getRequired(body.ownerUid, 'ownerUid')
         const repoId = getRequired(body.repoId, 'repoId')
         const command = getRequired(body.command, 'command')
-        const image = body.image?.trim() || 'python:3.11-alpine'
+        const image = resolveImage(body.image, command)
 
         await ensureDockerAvailable()
         await pullImageIfMissing(image)
