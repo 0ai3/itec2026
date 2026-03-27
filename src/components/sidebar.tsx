@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Files,
   Search,
+  Puzzle,
   GitBranch,
   Bug,
   Terminal,
@@ -27,10 +28,8 @@ export default function Sidebar() {
 
   return (
     <aside className="fixed left-0 top-0 z-50 flex h-screen w-14 flex-col bg-[#0d1117] border-r border-[#30363d]">
-
       {/* TOP ICONS */}
       <div className="flex flex-col items-center pt-2">
-
         <Link href="/" className={`${item} ${pathname === "/" ? active : ""}`}>
           <LayoutDashboard size={20} strokeWidth={1.6} />
           <span className={tooltip}>Dashboard</span>
@@ -53,10 +52,16 @@ export default function Sidebar() {
         </Link>
 
         <Link
+          href="/extensions"
+          className={`${item} ${pathname === "/extensions" ? active : ""}`}
+        >
+          <Puzzle size={20} strokeWidth={1.6} />
+          <span className={tooltip}>Extensions</span>
+        </Link>
+
+        <Link
           href="/source-control"
-          className={`${item} ${
-            pathname === "/source-control" ? active : ""
-          }`}
+          className={`${item} ${pathname === "/source-control" ? active : ""}`}
         >
           <GitBranch size={20} strokeWidth={1.6} />
           <span className={tooltip}>Source Control</span>
@@ -77,7 +82,6 @@ export default function Sidebar() {
           <Terminal size={20} strokeWidth={1.6} />
           <span className={tooltip}>Terminal</span>
         </Link>
-
       </div>
 
       {/* SPACER */}
@@ -85,7 +89,6 @@ export default function Sidebar() {
 
       {/* BOTTOM */}
       <div className="flex flex-col items-center pb-2 border-t border-[#21262d] pt-2">
-
         <Link
           href="/profile"
           className={`${item} ${pathname === "/profile" ? active : ""}`}
@@ -101,9 +104,7 @@ export default function Sidebar() {
           <Settings size={20} strokeWidth={1.6} />
           <span className={tooltip}>Settings</span>
         </Link>
-
       </div>
-
     </aside>
   );
 }
