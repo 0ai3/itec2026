@@ -59,8 +59,9 @@ export default function ProfilePage() {
 	const previewPhotoURL = photoURL.trim()
 
 	return (
-		<FirebaseLoginGate>
 			<main className="flex-1 p-6 max-w-2xl mx-auto w-full">
+		<FirebaseLoginGate/>
+
 				<div className="flex items-center justify-between mb-6">
 					<h1 className="text-2xl font-semibold">Profile</h1>
 					<Link href="/" className="text-sm underline">
@@ -125,6 +126,6 @@ export default function ProfilePage() {
 					</form>
 				</div>
 			</main>
-		</FirebaseLoginGate>
+
 	)
 }

@@ -6,11 +6,8 @@ import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
 import { useRouter } from 'next/navigation'
 import { auth, firebaseConfigError } from '@/lib/firebase'
 
-type FirebaseLoginGateProps = {
-	children: ReactNode
-}
 
-export default function FirebaseLoginGate({ children }: FirebaseLoginGateProps) {
+export default function FirebaseLoginGate() {
 	const router = useRouter()
 	const [user, setUser] = useState<User | null>(null)
 	const [isLoadingUser, setIsLoadingUser] = useState(Boolean(auth))
@@ -88,7 +85,7 @@ export default function FirebaseLoginGate({ children }: FirebaseLoginGateProps) 
 					</button>
 				</div>
 			</header>
-			{children}
+
 		</>
 	)
 }
