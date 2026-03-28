@@ -212,9 +212,6 @@ export default function Editor({
 				disposeInlineCompletions: () => {
 					completionAbortRef.current?.abort()
 				},
-				freeInlineCompletions: () => {
-					completionAbortRef.current?.abort()
-				},
 			})
 			removeInlineProvider = () => {
 				inlineProvider.dispose()

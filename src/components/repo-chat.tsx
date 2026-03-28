@@ -83,7 +83,7 @@ export default function RepoChat({ language, filePath, codeContext, onImportCode
   }
 
   return (
-    <section className="border border-black/10 rounded-xl p-3 flex flex-col min-h-[260px] max-h-[360px]">
+    <section className="border border-black/10 rounded-xl p-3 flex flex-col min-h-65 max-h-90">
       <div className="flex items-center justify-between mb-2">
         <h3 className="font-semibold">AI Chat</h3>
         <p className="text-xs text-gray-500">{filePath ? `File: ${filePath}` : 'Select a file to import code'}</p>

@@ -1,7 +1,14 @@
-import fs from 'node:fs/promises'
-import path from 'node:path'
 import { NextResponse } from 'next/server'
-import { buildRepoTree, ensureRepoRoot, resolveRepoPath } from '@/lib/repo-storage'
+import {
+  buildRepoTreeFromEntries,
+  deleteRepoFile,
+  deleteRepoFolder,
+  ensureRepoInitialized,
+  getRepoFileContent,
+  listRepoEntries,
+  upsertRepoFile,
+  upsertRepoFolder,
+} from '@/lib/repo-db-storage'
 
 export const runtime = 'nodejs'
 
@@ -19,15 +26,15 @@ export async function GET(request: Request) {
     const repoId = getParam(searchParams.get('repoId'), 'repoId')
     const filePath = searchParams.get('filePath')?.trim()
 
-    const repoRoot = await ensureRepoRoot(ownerUid, repoId)
+    await ensureRepoInitialized(ownerUid, repoId)
 
     if (filePath) {
-      const { targetPath } = resolveRepoPath(ownerUid, repoId, filePath)
-      const content = await fs.readFile(targetPath, 'utf8')
+      const content = await getRepoFileContent(ownerUid, repoId, filePath)
       return NextResponse.json({ filePath, content })
     }
 
-    const tree = await buildRepoTree(repoRoot)
+    const entries = await listRepoEntries(ownerUid, repoId)
+    const tree = buildRepoTreeFromEntries(entries)
     return NextResponse.json({ tree })
   } catch (error) {
     if (error instanceof Error) {
@@ -58,66 +65,47 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing action' }, { status: 400 })
     }
 
-    const repoRoot = await ensureRepoRoot(ownerUid, repoId)
-
     if (action === 'init') {
-      const readmePath = path.join(repoRoot, 'README.md')
-      const mainPath = path.join(repoRoot, 'main.py')
-
-      try {
-        await fs.access(readmePath)
-      } catch {
-        await fs.writeFile(readmePath, `# ${repoId}\n\nRepository initialized.\n`, 'utf8')
-      }
-
-      try {
-        await fs.access(mainPath)
-      } catch {
-        await fs.writeFile(mainPath, 'print("Hello from iTECify")\n', 'utf8')
-      }
-
-      const tree = await buildRepoTree(repoRoot)
+      const entries = await ensureRepoInitialized(ownerUid, repoId)
+      const tree = buildRepoTreeFromEntries(entries)
       return NextResponse.json({ ok: true, tree })
     }
 
     if (action === 'save') {
       const filePath = getParam(body.filePath?.trim() ?? null, 'filePath')
-      const { targetPath } = resolveRepoPath(ownerUid, repoId, filePath)
-      await fs.mkdir(path.dirname(targetPath), { recursive: true })
-      await fs.writeFile(targetPath, body.content ?? '', 'utf8')
+      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '')
       return NextResponse.json({ ok: true })
     }
 
     if (action === 'create-file') {
       const filePath = getParam(body.filePath?.trim() ?? null, 'filePath')
-      const { targetPath } = resolveRepoPath(ownerUid, repoId, filePath)
-      await fs.mkdir(path.dirname(targetPath), { recursive: true })
-      await fs.writeFile(targetPath, body.content ?? '', 'utf8')
-      const tree = await buildRepoTree(repoRoot)
+      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '')
+      const entries = await listRepoEntries(ownerUid, repoId)
+      const tree = buildRepoTreeFromEntries(entries)
       return NextResponse.json({ ok: true, tree })
     }
 
     if (action === 'create-folder') {
       const folderPath = getParam(body.folderPath?.trim() ?? null, 'folderPath')
-      const { targetPath } = resolveRepoPath(ownerUid, repoId, folderPath)
-      await fs.mkdir(targetPath, { recursive: true })
-      const tree = await buildRepoTree(repoRoot)
+      await upsertRepoFolder(ownerUid, repoId, folderPath)
+      const entries = await listRepoEntries(ownerUid, repoId)
+      const tree = buildRepoTreeFromEntries(entries)
       return NextResponse.json({ ok: true, tree })
     }
 
     if (action === 'delete-file') {
       const filePath = getParam(body.filePath?.trim() ?? null, 'filePath')
-      const { targetPath } = resolveRepoPath(ownerUid, repoId, filePath)
-      await fs.rm(targetPath, { force: true })
-      const tree = await buildRepoTree(repoRoot)
+      await deleteRepoFile(ownerUid, repoId, filePath)
+      const entries = await listRepoEntries(ownerUid, repoId)
+      const tree = buildRepoTreeFromEntries(entries)
       return NextResponse.json({ ok: true, tree })
     }
 
     if (action === 'delete-folder') {
       const folderPath = getParam(body.folderPath?.trim() ?? null, 'folderPath')
-      const { targetPath } = resolveRepoPath(ownerUid, repoId, folderPath)
-      await fs.rm(targetPath, { recursive: true, force: true })
-      const tree = await buildRepoTree(repoRoot)
+      await deleteRepoFolder(ownerUid, repoId, folderPath)
+      const entries = await listRepoEntries(ownerUid, repoId)
+      const tree = buildRepoTreeFromEntries(entries)
       return NextResponse.json({ ok: true, tree })
     }
 
