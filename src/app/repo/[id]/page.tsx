@@ -689,6 +689,7 @@ export default function RepoEditorPage() {
   const [isLoadingVersionHistory, setIsLoadingVersionHistory] = useState(false);
   const [isLoadingVersionPreview, setIsLoadingVersionPreview] = useState(false);
   const [isRestoringVersion, setIsRestoringVersion] = useState(false);
+  const [editorSessionNonce, setEditorSessionNonce] = useState(0);
 
   // UI state
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -1027,6 +1028,41 @@ export default function RepoEditorPage() {
     setIsLoadingVersionHistory(false);
   }, [ownerUid, repoId, selectedFilePath]);
 
+  useEffect(() => {
+    if (!ownerUid || !selectedFilePath || loadedSelectedFilePath !== selectedFilePath) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      if (isLoadingSelectedFile || isLoadingVersionPreview || isRestoringVersion) {
+        return;
+      }
+
+      const isInspectingOlderVersion =
+        selectedVersionIndex != null &&
+        selectedVersionIndex >= 0 &&
+        selectedVersionIndex < fileVersions.length - 1;
+
+      if (isInspectingOlderVersion) {
+        return;
+      }
+
+      void loadFileVersions();
+    }, 2_500);
+
+    return () => clearInterval(intervalId);
+  }, [
+    ownerUid,
+    selectedFilePath,
+    loadedSelectedFilePath,
+    isLoadingSelectedFile,
+    isLoadingVersionPreview,
+    isRestoringVersion,
+    selectedVersionIndex,
+    fileVersions.length,
+    loadFileVersions,
+  ]);
+
   /* ── Selected file ── */
   useEffect(() => {
     const load = async () => {
@@ -1335,10 +1371,17 @@ export default function RepoEditorPage() {
 
       setSelectedFileContent(previewVersionContent);
       setSelectedFileAiRanges(previewVersionAiRanges);
+      lastPersistedSnapshotRef.current = {
+        path: selectedFilePath,
+        content: previewVersionContent,
+        aiRangesKey: JSON.stringify(previewVersionAiRanges),
+      };
+      hasPendingLocalEditsRef.current = false;
       setEditorReplaceContent(previewVersionContent);
       setEditorReplaceSource("user");
       setEditorReplaceToken((prev) => prev + 1);
       setEditorAiRangesToken((prev) => prev + 1);
+      setEditorSessionNonce((prev) => prev + 1);
       setFileMessage("Version restored");
       await loadFileVersions();
     } catch (error) {
@@ -1963,6 +2006,7 @@ export default function RepoEditorPage() {
     [selectedFilePath],
   );
   const effectiveEditorRoom = `${collaborationRoomId}:${selectedFilePath ?? "root"}`;
+  const effectiveEditorKey = `${effectiveEditorRoom}:${editorSessionNonce}`;
   const runtimeDefaults = useMemo(
     () => getRuntimeConfigForFilePath(selectedFilePath),
     [selectedFilePath],
@@ -2642,7 +2686,7 @@ export default function RepoEditorPage() {
                   </div>
                 ) : (
                   <Editor
-                    key={effectiveEditorRoom}
+                    key={effectiveEditorKey}
                     roomId={effectiveEditorRoom}
                     language={editorLanguage}
                     initialCode={selectedFileContent}
