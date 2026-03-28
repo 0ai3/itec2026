@@ -115,7 +115,8 @@ async function scanJavaScriptCode(code: string) {
                 'no-implied-eval': 'error',
                 'security/detect-eval-with-expression': 'error',
                 'security/detect-child-process': 'error', // Fără execuții de terminal
-                'security/detect-non-literal-fs-filename': 'error' // Fără citire de fișiere de sistem sensibile
+                'security/detect-non-literal-fs-filename': 'error', // Fără citire de fișiere de sistem sensibile
+                'no-restricted-imports': ['error', 'child_process', 'node:child_process', 'fs', 'node:fs']
             },
         }],
     });
