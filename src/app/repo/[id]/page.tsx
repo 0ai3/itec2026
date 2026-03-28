@@ -759,7 +759,7 @@ export default function RepoEditorPage() {
     void load()
   }, [ownerUid, repoId, selectedFilePath, loadFileVersions])
 
-  /* ── Auto-save (30s) ── */
+  /* ── Auto-save (2s) ── */
   useEffect(() => {
     if (!ownerUid || !selectedFilePath) return
     const intervalId = setInterval(() => {
@@ -807,7 +807,7 @@ export default function RepoEditorPage() {
             setErrorMessage(error.message)
           }
         })
-    }, 30_000)
+    }, 2_000)
 
     return () => clearInterval(intervalId)
   }, [ownerUid, repoId, selectedFilePath, selectedFileContent, selectedFileAiRanges, isLoadingSelectedFile, isSavingFile])
