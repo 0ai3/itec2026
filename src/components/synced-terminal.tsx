@@ -25,11 +25,74 @@ const isPythonCommand = (command: string) => /^(python|python3|pip|pip3)\b/.test
 const isRustCommand = (command: string) => /^(rustc|cargo)\b/.test(command)
 const inputRequestPattern = /(EOFError|EOF when reading a line|No line found)/i
 
+const closeUnterminatedQuotes = (value: string) => {
+  let inSingle = false
+  let inDouble = false
+  let escaped = false
+
+  for (const char of value) {
+    if (escaped) {
+      escaped = false
+      continue
+    }
+
+    if (char === '\\' && !inSingle) {
+      escaped = true
+      continue
+    }
+
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle
+      continue
+    }
+
+    if (char === '"' && !inSingle) {
+      inDouble = !inDouble
+    }
+  }
+
+  let fixed = value
+  if (inSingle) {
+    fixed += "'"
+  }
+  if (inDouble) {
+    fixed += '"'
+  }
+
+  return fixed
+}
+
+const isValidDockerImageRef = (value: string) =>
+  /^[a-z0-9]+(?:(?:[._-]|__|[-]*)[a-z0-9]+)*(?:\/[a-z0-9]+(?:(?:[._-]|__|[-]*)[a-z0-9]+)*)*(?::[A-Za-z0-9_.-]+)?$/.test(value)
+
+const normalizeImageRef = (value: string) => {
+  const trimmed = value.trim().toLowerCase()
+  if (!trimmed) {
+    return ''
+  }
+
+  if (isValidDockerImageRef(trimmed)) {
+    return trimmed
+  }
+
+  if (trimmed.length % 2 === 0) {
+    const half = trimmed.length / 2
+    const left = trimmed.slice(0, half)
+    const right = trimmed.slice(half)
+    if (left === right && isValidDockerImageRef(left)) {
+      return left
+    }
+  }
+
+  return ''
+}
+
 const resolveExecutionImage = (imageValue: string, commandValue: string, defaultImageValue: string) => {
-  const trimmedImage = imageValue.trim()
+  const trimmedImage = normalizeImageRef(imageValue)
+  const normalizedDefaultImage = normalizeImageRef(defaultImageValue)
   const trimmedCommand = commandValue.trim()
 
-  if (trimmedImage && trimmedImage !== defaultImageValue) {
+  if (trimmedImage && trimmedImage !== normalizedDefaultImage) {
     return trimmedImage
   }
 
@@ -45,7 +108,7 @@ const resolveExecutionImage = (imageValue: string, commandValue: string, default
     return 'rust:latest'
   }
 
-  return trimmedImage || 'alpine:3.20'
+  return trimmedImage || normalizedDefaultImage || 'alpine:3.20'
 }
 
 export default function SyncedTerminal({
@@ -351,8 +414,8 @@ export default function SyncedTerminal({
     }
 
     const typedCommand = command.trim()
-    const commandValue = typedCommand || lastRunCommandRef.current
-    if (!commandValue) {
+    const enteredValue = typedCommand || lastRunCommandRef.current
+    if (!enteredValue) {
       setTerminalError('Command is required')
       return
     }
@@ -360,7 +423,7 @@ export default function SyncedTerminal({
     handleClearOutput()
 
     if (pendingInputCommand) {
-      if (commandValue === '/cancel') {
+      if (enteredValue === '/cancel') {
         setPendingInputCommand(null)
         setPendingInputBuffer('')
         handleCommandChange('')
@@ -370,10 +433,10 @@ export default function SyncedTerminal({
         return
       }
 
-      const mergedInput = pendingInputBuffer ? `${pendingInputBuffer}\n${commandValue}` : commandValue
+      const mergedInput = pendingInputBuffer ? `${pendingInputBuffer}\n${enteredValue}` : enteredValue
       setTerminalError(null)
       setHistoryIndex(null)
-      appendOutput(`> ${commandValue}`)
+      appendOutput(`> ${enteredValue}`)
       handleCommandChange('')
       syncCommandToShared('')
       setIsRunning(true)
@@ -396,6 +459,14 @@ export default function SyncedTerminal({
     setTerminalError(null)
     setIsRunning(true)
     setHistoryIndex(null)
+
+    const commandValue = closeUnterminatedQuotes(enteredValue)
+    if (commandValue !== enteredValue) {
+      handleCommandChange(commandValue)
+      syncCommandToShared(commandValue)
+      appendOutput('↳ Auto-fixed unterminated quote in command.')
+    }
+
     rememberCommand(commandValue)
     lastRunCommandRef.current = commandValue
     syncCommandToShared(commandValue)

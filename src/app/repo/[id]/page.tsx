@@ -43,6 +43,59 @@ type FileVersionSummary = {
   createdAt: number
 }
 
+type ExplorerContextMenuState = {
+  x: number
+  y: number
+  entryPath: string
+  entryType: 'file' | 'directory'
+}
+
+type ExplorerDragPayload = {
+  entryPath: string
+  entryType: 'file' | 'directory'
+}
+
+const EXPLORER_DND_MIME = 'application/x-itec-repo-entry'
+const EXPLORER_DND_TEXT_PREFIX = '__ITEC_REPO_ENTRY__:'
+
+const encodeExplorerDragPayload = (payload: ExplorerDragPayload) => JSON.stringify(payload)
+
+const decodeExplorerDragPayload = (raw: string): ExplorerDragPayload | null => {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<ExplorerDragPayload>
+    if (!parsed.entryPath || (parsed.entryType !== 'file' && parsed.entryType !== 'directory')) {
+      return null
+    }
+    return {
+      entryPath: parsed.entryPath,
+      entryType: parsed.entryType,
+    }
+  } catch {
+    return null
+  }
+}
+
+const setExplorerDragPayload = (dataTransfer: DataTransfer, payload: ExplorerDragPayload) => {
+  const encoded = encodeExplorerDragPayload(payload)
+  dataTransfer.setData(EXPLORER_DND_MIME, encoded)
+  dataTransfer.setData('text/plain', `${EXPLORER_DND_TEXT_PREFIX}${encoded}`)
+}
+
+const getExplorerDragPayload = (dataTransfer: DataTransfer): ExplorerDragPayload | null => {
+  const fromMime = decodeExplorerDragPayload(dataTransfer.getData(EXPLORER_DND_MIME))
+  if (fromMime) {
+    return fromMime
+  }
+
+  const plain = dataTransfer.getData('text/plain')
+  if (!plain.startsWith(EXPLORER_DND_TEXT_PREFIX)) {
+    return null
+  }
+
+  return decodeExplorerDragPayload(plain.slice(EXPLORER_DND_TEXT_PREFIX.length))
+}
+
 const generateAiRangeId = () => Math.random().toString(36).slice(2, 10)
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
@@ -164,6 +217,23 @@ const getParentFolderPath = (filePath: string) => {
   return parts.slice(0, -1).join('/')
 }
 
+const getBaseName = (entryPath: string) => {
+  const parts = entryPath.split('/').filter(Boolean)
+  return parts[parts.length - 1] ?? entryPath
+}
+
+const remapPathAfterMove = (currentPath: string, sourcePath: string, destinationPath: string) => {
+  if (currentPath === sourcePath) {
+    return destinationPath
+  }
+
+  if (currentPath.startsWith(`${sourcePath}/`)) {
+    return `${destinationPath}${currentPath.slice(sourcePath.length)}`
+  }
+
+  return currentPath
+}
+
 /* ─── File icon ──────────────────────────────────────────────────────────── */
 
 const FILE_ICONS: Record<string, { icon: string; color: string }> = {
@@ -211,6 +281,13 @@ function FileTree({
   onSelectFile,
   onSelectFolder,
   onDropFilesToFolder,
+  onDropEntryToFolder,
+  onDragHoverFolder,
+  isMoveAlreadyTriggered,
+  getActiveDragEntry,
+  onDragEntryStart,
+  onDragEntryEnd,
+  onOpenContextMenu,
   depth = 0,
 }: {
   nodes: RepoFileNode[]
@@ -219,6 +296,13 @@ function FileTree({
   onSelectFile: (p: string) => void
   onSelectFolder: (p: string) => void
   onDropFilesToFolder: (folder: string, files: File[]) => void
+  onDropEntryToFolder: (entryPath: string, entryType: 'file' | 'directory', folderPath: string) => void
+  onDragHoverFolder: (folderPath: string) => void
+  isMoveAlreadyTriggered: () => boolean
+  getActiveDragEntry: () => ExplorerDragPayload | null
+  onDragEntryStart: (entryPath: string, entryType: 'file' | 'directory') => void
+  onDragEntryEnd: () => void
+  onOpenContextMenu: (event: React.MouseEvent<HTMLElement>, entryPath: string, entryType: 'file' | 'directory') => void
   depth?: number
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
@@ -226,8 +310,32 @@ function FileTree({
   const handleDrop = (e: DragEvent<HTMLDivElement>, folderPath: string) => {
     e.preventDefault()
     e.stopPropagation()
+
+    if (isMoveAlreadyTriggered()) {
+      onDragEntryEnd()
+      return
+    }
+
+    const payload = getActiveDragEntry() ?? getExplorerDragPayload(e.dataTransfer)
+    if (payload) {
+      onDragEntryEnd()
+      onDropEntryToFolder(payload.entryPath, payload.entryType, folderPath)
+      return
+    }
+
     const files = Array.from(e.dataTransfer.files ?? [])
     if (files.length) onDropFilesToFolder(folderPath, files)
+  }
+
+  const handleDragStart = (
+    event: DragEvent<HTMLElement>,
+    entryPath: string,
+    entryType: 'file' | 'directory'
+  ) => {
+    event.stopPropagation()
+    event.dataTransfer.effectAllowed = 'move'
+    setExplorerDragPayload(event.dataTransfer, { entryPath, entryType })
+    onDragEntryStart(entryPath, entryType)
   }
 
   return (
@@ -238,15 +346,34 @@ function FileTree({
           return (
             <li key={node.path}>
               <div
-                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }}
+                draggable
+                onDragStart={(event) => handleDragStart(event, node.path, 'directory')}
+                data-repo-drop-target="folder"
+                data-repo-path={node.path}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onDragHoverFolder(node.path)
+                  const payload = getActiveDragEntry() ?? getExplorerDragPayload(e.dataTransfer)
+                  e.dataTransfer.dropEffect = payload ? 'move' : 'copy'
+                }}
                 onDrop={(e) => handleDrop(e, node.path)}
               >
                 <button
                   type="button"
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onDragHoverFolder(node.path)
+                    const payload = getActiveDragEntry() ?? getExplorerDragPayload(event.dataTransfer)
+                    event.dataTransfer.dropEffect = payload ? 'move' : 'copy'
+                  }}
+                  onDrop={(event) => handleDrop(event, node.path)}
                   onClick={() => {
                     setCollapsed(prev => ({ ...prev, [node.path]: isOpen }))
                     onSelectFolder(node.path)
                   }}
+                  onContextMenu={(event) => onOpenContextMenu(event, node.path, 'directory')}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -276,6 +403,13 @@ function FileTree({
                     onSelectFile={onSelectFile}
                     onSelectFolder={onSelectFolder}
                     onDropFilesToFolder={onDropFilesToFolder}
+                    onDropEntryToFolder={onDropEntryToFolder}
+                    onDragHoverFolder={onDragHoverFolder}
+                    isMoveAlreadyTriggered={isMoveAlreadyTriggered}
+                    getActiveDragEntry={getActiveDragEntry}
+                    onDragEntryStart={onDragEntryStart}
+                    onDragEntryEnd={onDragEntryEnd}
+                    onOpenContextMenu={onOpenContextMenu}
                     depth={depth + 1}
                   />
                 ) : null}
@@ -289,7 +423,20 @@ function FileTree({
           <li key={node.path}>
             <button
               type="button"
+              draggable
+              onDragStart={(event) => handleDragStart(event, node.path, 'file')}
+              onDragOver={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onDragHoverFolder(getParentFolderPath(node.path))
+                const payload = getActiveDragEntry() ?? getExplorerDragPayload(event.dataTransfer)
+                event.dataTransfer.dropEffect = payload ? 'move' : 'copy'
+              }}
+              onDrop={(event) => handleDrop(event, getParentFolderPath(node.path))}
+              data-repo-drop-target="file"
+              data-repo-path={node.path}
               onClick={() => onSelectFile(node.path)}
+              onContextMenu={(event) => onOpenContextMenu(event, node.path, 'file')}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -399,6 +546,11 @@ export default function RepoEditorPage() {
   const [inviteOpen, setInviteOpen] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(true)
   const [chatOpen, setChatOpen] = useState(false)
+  const [explorerContextMenu, setExplorerContextMenu] = useState<ExplorerContextMenuState | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement | null>(null)
+  const activeDragEntryRef = useRef<ExplorerDragPayload | null>(null)
+  const dragHoverFolderRef = useRef<string>('')
+  const dragMoveTriggeredRef = useRef(false)
 
   // Resize panels
   const sidebar = useResize(220, 140, 400, 'horizontal')
@@ -711,6 +863,219 @@ export default function RepoEditorPage() {
     } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
   }
 
+  const handleRenameEntry = useCallback(async (entryPath: string, entryType: 'file' | 'directory') => {
+    if (!ownerUid) return
+
+    const currentName = getBaseName(entryPath)
+    const newName = window.prompt(`Rename ${entryType}:`, currentName)?.trim()
+    if (!newName || newName === currentName) return
+
+    try {
+      const response = await fetch('/api/repo-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'rename-entry',
+          ownerUid,
+          repoId,
+          sourcePath: entryPath,
+          newName,
+        }),
+      })
+
+      const data = (await response.json()) as {
+        tree?: RepoFileNode[]
+        sourcePath?: string
+        destinationPath?: string
+        error?: string
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to rename entry')
+      }
+
+      const nextTree = data.tree ?? []
+      setFileTree(nextTree)
+      setSelectedFolderPath((prev) =>
+        data.destinationPath ? remapPathAfterMove(prev, entryPath, data.destinationPath) : prev
+      )
+
+      if (selectedFilePath && data.destinationPath) {
+        const nextSelected = remapPathAfterMove(selectedFilePath, entryPath, data.destinationPath)
+        setSelectedFilePath(nextSelected)
+      }
+
+      setFileMessage('Renamed')
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message)
+      }
+    }
+  }, [ownerUid, repoId, selectedFilePath])
+
+  const moveEntryToPath = useCallback(async (
+    sourcePath: string,
+    sourceType: 'file' | 'directory',
+    destinationPath: string
+  ) => {
+    if (!ownerUid) return
+
+    if (destinationPath === sourcePath) {
+      setFileMessage('Dropped in same location.')
+      return
+    }
+    if (sourceType === 'directory' && (destinationPath === sourcePath || destinationPath.startsWith(`${sourcePath}/`))) {
+      setFileMessage('Cannot move a folder into itself.')
+      return
+    }
+
+    setFileMessage(`Moving ${sourcePath} → ${destinationPath}…`)
+
+    try {
+      const response = await fetch('/api/repo-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'move-entry',
+          ownerUid,
+          repoId,
+          sourcePath,
+          destinationPath,
+        }),
+      })
+
+      const data = (await response.json()) as {
+        tree?: RepoFileNode[]
+        sourcePath?: string
+        destinationPath?: string
+        error?: string
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || `Unable to move ${sourceType}`)
+      }
+
+      const movedTo = data.destinationPath ?? destinationPath
+      setFileTree(data.tree ?? [])
+      setSelectedFolderPath((prev) => remapPathAfterMove(prev, sourcePath, movedTo))
+
+      if (selectedFilePath) {
+        const nextSelected = remapPathAfterMove(selectedFilePath, sourcePath, movedTo)
+        setSelectedFilePath(nextSelected)
+      }
+
+      setFileMessage('Moved')
+    } catch (error) {
+      if (error instanceof Error) {
+        setFileMessage(`Move failed: ${error.message}`)
+      }
+    }
+  }, [ownerUid, repoId, selectedFilePath])
+
+  const handleMoveEntry = useCallback((entryPath: string, entryType: 'file' | 'directory') => {
+    const currentParent = getParentFolderPath(entryPath)
+    const destinationFolderInput = window.prompt(
+      'Move to folder path (empty for root):',
+      currentParent
+    )
+    if (destinationFolderInput === null) return
+
+    const destinationFolder = destinationFolderInput
+      .trim()
+      .replaceAll('\\', '/')
+      .replace(/^\/+/, '')
+      .replace(/\/+$/, '')
+    const baseName = getBaseName(entryPath)
+    const destinationPath = destinationFolder ? `${destinationFolder}/${baseName}` : baseName
+
+    void moveEntryToPath(entryPath, entryType, destinationPath)
+  }, [moveEntryToPath])
+
+  const handleDropEntryToFolder = useCallback((
+    entryPath: string,
+    entryType: 'file' | 'directory',
+    folderPath: string
+  ) => {
+    dragMoveTriggeredRef.current = true
+    const baseName = getBaseName(entryPath)
+    const destinationPath = folderPath ? `${folderPath}/${baseName}` : baseName
+    void moveEntryToPath(entryPath, entryType, destinationPath)
+  }, [moveEntryToPath])
+
+  const handleDragEntryStart = useCallback((entryPath: string, entryType: 'file' | 'directory') => {
+    activeDragEntryRef.current = { entryPath, entryType }
+    dragHoverFolderRef.current = getParentFolderPath(entryPath)
+    dragMoveTriggeredRef.current = false
+    setFileMessage(`Dragging ${entryPath}`)
+  }, [])
+
+  const handleDragEntryEnd = useCallback(() => {
+    activeDragEntryRef.current = null
+    dragHoverFolderRef.current = ''
+    dragMoveTriggeredRef.current = false
+    setFileMessage((prev) => (prev?.startsWith('Dragging ') ? null : prev))
+  }, [])
+
+  const handleDragHoverFolder = useCallback((folderPath: string) => {
+    dragHoverFolderRef.current = folderPath
+  }, [])
+
+  const isMoveAlreadyTriggered = useCallback(() => dragMoveTriggeredRef.current, [])
+
+  const getActiveDragEntry = useCallback(() => activeDragEntryRef.current, [])
+
+  const handleDeleteEntry = useCallback(async (entryPath: string, entryType: 'file' | 'directory') => {
+    if (!ownerUid) return
+
+    const confirmed = window.confirm(
+      entryType === 'directory'
+        ? `Delete folder "${entryPath}" and all its contents?`
+        : `Delete file "${entryPath}"?`
+    )
+    if (!confirmed) return
+
+    try {
+      const response = await fetch('/api/repo-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: entryType === 'directory' ? 'delete-folder' : 'delete-file',
+          ownerUid,
+          repoId,
+          ...(entryType === 'directory' ? { folderPath: entryPath } : { filePath: entryPath }),
+        }),
+      })
+
+      const data = (await response.json()) as { tree?: RepoFileNode[]; error?: string }
+      if (!response.ok) {
+        throw new Error(data.error || `Unable to delete ${entryType}`)
+      }
+
+      const nextTree = data.tree ?? []
+      setFileTree(nextTree)
+
+      const selectedIsDeleted =
+        selectedFilePath != null &&
+        (selectedFilePath === entryPath || selectedFilePath.startsWith(`${entryPath}/`))
+      if (selectedIsDeleted) {
+        const fallback = findFirstFile(nextTree)
+        setSelectedFilePath(fallback)
+      }
+
+      const folderIsDeleted =
+        selectedFolderPath === entryPath || selectedFolderPath.startsWith(`${entryPath}/`)
+      if (folderIsDeleted) {
+        setSelectedFolderPath('')
+      }
+
+      setFileMessage('Deleted')
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message)
+      }
+    }
+  }, [ownerUid, repoId, selectedFilePath, selectedFolderPath])
+
   const handleDropFilesToFolder = useCallback(async (folderPath: string, files: File[]) => {
     if (!ownerUid || !files.length) return
     setFileMessage(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}…`)
@@ -729,9 +1094,134 @@ export default function RepoEditorPage() {
 
   const handleDropFilesAnywhere = useCallback((e: DragEvent<HTMLElement>) => {
     e.preventDefault()
+
+    if (dragMoveTriggeredRef.current) {
+      handleDragEntryEnd()
+      return
+    }
+
+    const internalPayload = activeDragEntryRef.current ?? getExplorerDragPayload(e.dataTransfer)
+    if (internalPayload) {
+      const destinationFolderPath = dragHoverFolderRef.current
+      handleDropEntryToFolder(internalPayload.entryPath, internalPayload.entryType, destinationFolderPath)
+
+      handleDragEntryEnd()
+      return
+    }
+
     const files = Array.from(e.dataTransfer.files ?? [])
     if (files.length) void handleDropFilesToFolder(selectedFolderPath || '', files)
-  }, [handleDropFilesToFolder, selectedFolderPath])
+  }, [handleDragEntryEnd, handleDropEntryToFolder, handleDropFilesToFolder, selectedFolderPath])
+
+  const handleExplorerRootDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    if (event.target === event.currentTarget) {
+      dragHoverFolderRef.current = ''
+    }
+    const payload = activeDragEntryRef.current ?? getExplorerDragPayload(event.dataTransfer)
+    event.dataTransfer.dropEffect = payload ? 'move' : 'copy'
+  }, [])
+
+  const handleExplorerRootDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+
+    if (dragMoveTriggeredRef.current) {
+      handleDragEntryEnd()
+      return
+    }
+
+    const payload = activeDragEntryRef.current ?? getExplorerDragPayload(event.dataTransfer)
+    if (payload) {
+      event.stopPropagation()
+      handleDragEntryEnd()
+      handleDropEntryToFolder(payload.entryPath, payload.entryType, '')
+      return
+    }
+
+    const files = Array.from(event.dataTransfer.files ?? [])
+    if (files.length) {
+      void handleDropFilesToFolder('', files)
+    }
+  }, [handleDropEntryToFolder, handleDropFilesToFolder, handleDragEntryEnd])
+
+  const handleOpenContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLElement>, entryPath: string, entryType: 'file' | 'directory') => {
+      event.preventDefault()
+      event.stopPropagation()
+      setExplorerContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        entryPath,
+        entryType,
+      })
+    },
+    []
+  )
+
+  useEffect(() => {
+    const closeMenu = () => setExplorerContextMenu(null)
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (contextMenuRef.current && target && contextMenuRef.current.contains(target)) {
+        return
+      }
+      closeMenu()
+    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMenu()
+      }
+    }
+
+    window.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleEscape)
+    window.addEventListener('resize', closeMenu)
+
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleEscape)
+      window.removeEventListener('resize', closeMenu)
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleWindowDragOver = (event: Event) => {
+      const dragEvent = event as globalThis.DragEvent
+      if (!activeDragEntryRef.current) {
+        return
+      }
+
+      dragEvent.preventDefault()
+      if (dragEvent.dataTransfer) {
+        dragEvent.dataTransfer.dropEffect = 'move'
+      }
+    }
+
+    const handleWindowDragEnd = () => {
+      const activePayload = activeDragEntryRef.current
+      if (!activePayload) {
+        return
+      }
+
+      if (!dragMoveTriggeredRef.current) {
+        const sourceParent = getParentFolderPath(activePayload.entryPath)
+        const destinationFolderPath = dragHoverFolderRef.current
+        if (destinationFolderPath !== sourceParent) {
+          handleDropEntryToFolder(activePayload.entryPath, activePayload.entryType, destinationFolderPath)
+        }
+      }
+
+      handleDragEntryEnd()
+    }
+
+    window.addEventListener('dragover', handleWindowDragOver, true)
+    window.addEventListener('dragend', handleWindowDragEnd, true)
+
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver, true)
+      window.removeEventListener('dragend', handleWindowDragEnd, true)
+    }
+  }, [handleDropEntryToFolder, handleDragEntryEnd])
 
   const handleImportCodeFromChat = (code: string) => {
     if (!selectedFilePath) { setErrorMessage('Select a file before importing.'); return }
@@ -743,6 +1233,10 @@ export default function RepoEditorPage() {
   const editorLanguage = useMemo(() => getLanguageFromFilePath(selectedFilePath), [selectedFilePath])
   const effectiveEditorRoom = `${collaborationRoomId}:${selectedFilePath ?? 'root'}`
   const runtimeDefaults = useMemo(() => getRuntimeConfigForFilePath(selectedFilePath), [selectedFilePath])
+  const isHtmlPreviewFile = Boolean(
+    selectedFilePath &&
+      (selectedFilePath.toLowerCase().endsWith('.html') || selectedFilePath.toLowerCase().endsWith('.htm'))
+  )
   const selectedVersion =
     selectedVersionIndex != null && selectedVersionIndex >= 0
       ? fileVersions[selectedVersionIndex] ?? null
@@ -944,7 +1438,11 @@ export default function RepoEditorPage() {
           </div>
 
           {/* File list */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
+          <div
+            style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}
+            onDragOver={handleExplorerRootDragOver}
+            onDrop={handleExplorerRootDrop}
+          >
             {isLoadingFiles ? (
               <p style={{ fontSize: 12, color: '#8b949e', padding: '8px 12px' }}>Loading…</p>
             ) : fileTree.length === 0 ? (
@@ -957,6 +1455,13 @@ export default function RepoEditorPage() {
                 onSelectFile={(p) => { setSelectedFilePath(p); setSelectedFolderPath(getParentFolderPath(p)) }}
                 onSelectFolder={setSelectedFolderPath}
                 onDropFilesToFolder={handleDropFilesToFolder}
+                onDropEntryToFolder={handleDropEntryToFolder}
+                onDragHoverFolder={handleDragHoverFolder}
+                isMoveAlreadyTriggered={isMoveAlreadyTriggered}
+                getActiveDragEntry={getActiveDragEntry}
+                onDragEntryStart={handleDragEntryStart}
+                onDragEntryEnd={handleDragEntryEnd}
+                onOpenContextMenu={handleOpenContextMenu}
               />
             )}
           </div>
@@ -995,28 +1500,62 @@ export default function RepoEditorPage() {
           </div>
 
           {/* Editor area */}
-          <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-            {selectedFilePath ? (
-              <Editor
-                key={effectiveEditorRoom}
-                roomId={effectiveEditorRoom}
-                language={editorLanguage}
-                initialCode={selectedFileContent}
-                onCodeChange={setSelectedFileContent}
-                replaceContentToken={editorReplaceToken}
-                replaceContentValue={editorReplaceContent}
-                replaceContentSource={editorReplaceSource}
-                initialAiRanges={selectedFileAiRanges}
-                aiRangesToken={editorAiRangesToken}
-                onAiRangesChange={(r) => setSelectedFileAiRanges(r)}
-                embedded
-              />
-            ) : (
-              <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
-                <div style={{ textAlign: 'center' }}>
-                  <p style={{ color: '#8b949e', fontSize: 14, marginBottom: 8 }}>No file selected</p>
-                  <p style={{ color: '#6e7681', fontSize: 12 }}>Pick a file from the explorer or drop files anywhere</p>
+          <div style={{ flex: 1, overflow: 'hidden', minHeight: 0, display: 'flex' }}>
+            <div style={{ flex: isHtmlPreviewFile ? '0 0 55%' : 1, minWidth: 0, borderRight: isHtmlPreviewFile ? '1px solid #21262d' : 'none' }}>
+              {selectedFilePath ? (
+                <Editor
+                  key={effectiveEditorRoom}
+                  roomId={effectiveEditorRoom}
+                  language={editorLanguage}
+                  initialCode={selectedFileContent}
+                  onCodeChange={setSelectedFileContent}
+                  replaceContentToken={editorReplaceToken}
+                  replaceContentValue={editorReplaceContent}
+                  replaceContentSource={editorReplaceSource}
+                  initialAiRanges={selectedFileAiRanges}
+                  aiRangesToken={editorAiRangesToken}
+                  onAiRangesChange={(r) => setSelectedFileAiRanges(r)}
+                  embedded
+                />
+              ) : (
+                <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ color: '#8b949e', fontSize: 14, marginBottom: 8 }}>No file selected</p>
+                    <p style={{ color: '#6e7681', fontSize: 12 }}>Pick a file from the explorer or drop files anywhere</p>
+                  </div>
                 </div>
+              )}
+            </div>
+
+            {isHtmlPreviewFile && (
+              <div style={{ flex: '0 0 45%', minWidth: 280, display: 'flex', flexDirection: 'column', background: '#0d1117' }}>
+                <div style={{
+                  height: 32,
+                  borderBottom: '1px solid #21262d',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0 10px',
+                  fontSize: 11,
+                  color: '#8b949e',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  background: '#161b22',
+                }}>
+                  <span>Live Preview</span>
+                  <span style={{ color: '#6e7681' }}>{selectedFilePath}</span>
+                </div>
+                <iframe
+                  title="Live HTML Preview"
+                  srcDoc={selectedFileContent}
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
+                  style={{
+                    flex: 1,
+                    width: '100%',
+                    border: 'none',
+                    background: '#ffffff',
+                  }}
+                />
               </div>
             )}
           </div>
@@ -1095,6 +1634,56 @@ export default function RepoEditorPage() {
             codeContext={selectedFileContent}
             onImportCode={(code) => { handleImportCodeFromChat(code); setChatOpen(false) }}
           />
+        </div>
+      )}
+
+      {explorerContextMenu && (
+        <div
+          ref={contextMenuRef}
+          style={{
+            position: 'fixed',
+            left: explorerContextMenu.x,
+            top: explorerContextMenu.y,
+            minWidth: 150,
+            background: '#161b22',
+            border: '1px solid #30363d',
+            borderRadius: 8,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.55)',
+            zIndex: 400,
+            overflow: 'hidden',
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              void handleRenameEntry(explorerContextMenu.entryPath, explorerContextMenu.entryType)
+              setExplorerContextMenu(null)
+            }}
+            style={{ width: '100%', padding: '8px 10px', textAlign: 'left', background: 'transparent', border: 'none', color: '#c9d1d9', fontSize: 12, cursor: 'pointer' }}
+          >
+            Rename
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void handleMoveEntry(explorerContextMenu.entryPath, explorerContextMenu.entryType)
+              setExplorerContextMenu(null)
+            }}
+            style={{ width: '100%', padding: '8px 10px', textAlign: 'left', background: 'transparent', border: 'none', color: '#c9d1d9', fontSize: 12, cursor: 'pointer' }}
+          >
+            Move
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void handleDeleteEntry(explorerContextMenu.entryPath, explorerContextMenu.entryType)
+              setExplorerContextMenu(null)
+            }}
+            style={{ width: '100%', padding: '8px 10px', textAlign: 'left', background: 'transparent', border: 'none', color: '#f85149', fontSize: 12, cursor: 'pointer' }}
+          >
+            Delete
+          </button>
         </div>
       )}
     </main>

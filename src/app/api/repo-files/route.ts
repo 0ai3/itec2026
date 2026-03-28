@@ -8,6 +8,8 @@ import {
   getRepoFileVersion,
   listRepoEntries,
   listRepoFileVersions,
+  moveRepoEntry,
+  renameRepoEntry,
   type RepoAiRange,
   upsertRepoFile,
   upsertRepoFolder,
@@ -68,9 +70,20 @@ export async function GET(request: Request) {
 type PostBody = {
   ownerUid?: string
   repoId?: string
-  action?: 'init' | 'save' | 'create-file' | 'create-folder' | 'delete-file' | 'delete-folder'
+  action?:
+    | 'init'
+    | 'save'
+    | 'create-file'
+    | 'create-folder'
+    | 'delete-file'
+    | 'delete-folder'
+    | 'move-entry'
+    | 'rename-entry'
   filePath?: string
   folderPath?: string
+  sourcePath?: string
+  destinationPath?: string
+  newName?: string
   content?: string
   aiRanges?: RepoAiRange[]
   createVersion?: boolean
@@ -134,6 +147,24 @@ export async function POST(request: Request) {
       const entries = await listRepoEntries(ownerUid, repoId)
       const tree = buildRepoTreeFromEntries(entries)
       return NextResponse.json({ ok: true, tree })
+    }
+
+    if (action === 'move-entry') {
+      const sourcePath = getParam(body.sourcePath?.trim() ?? null, 'sourcePath')
+      const destinationPath = getParam(body.destinationPath?.trim() ?? null, 'destinationPath')
+      await moveRepoEntry(ownerUid, repoId, sourcePath, destinationPath)
+      const entries = await listRepoEntries(ownerUid, repoId)
+      const tree = buildRepoTreeFromEntries(entries)
+      return NextResponse.json({ ok: true, tree, sourcePath, destinationPath })
+    }
+
+    if (action === 'rename-entry') {
+      const sourcePath = getParam(body.sourcePath?.trim() ?? null, 'sourcePath')
+      const newName = getParam(body.newName?.trim() ?? null, 'newName')
+      const destinationPath = await renameRepoEntry(ownerUid, repoId, sourcePath, newName)
+      const entries = await listRepoEntries(ownerUid, repoId)
+      const tree = buildRepoTreeFromEntries(entries)
+      return NextResponse.json({ ok: true, tree, sourcePath, destinationPath })
     }
 
     return NextResponse.json({ error: 'Unsupported action' }, { status: 400 })
