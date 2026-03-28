@@ -50,8 +50,18 @@ export default function SettingsPage() {
       <section className="relative mx-auto max-w-6xl px-6 pb-12 pt-8">
         <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-4">
-            <div className="grid h-14 w-14 place-items-center rounded-xl border border-[#30363d] bg-[#0f1622] text-lg font-semibold text-white">
-              {initials}
+            <div className="h-14 w-14 overflow-hidden rounded-xl border border-[#30363d] bg-[#0f1622] text-lg font-semibold text-white">
+              {user?.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt="Profile"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="grid h-full w-full place-items-center">
+                  {initials}
+                </div>
+              )}
             </div>
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-[#8b949e]">
