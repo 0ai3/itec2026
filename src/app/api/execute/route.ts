@@ -1,7 +1,10 @@
 import Docker from 'dockerode'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { Writable } from 'node:stream'
 import { NextResponse } from 'next/server'
-import { ensureRepoRoot, getRepoRootPath } from '@/lib/repo-storage'
+import { ensureRepoInitialized, listRepoEntries } from '@/lib/repo-db-storage'
 
 export const runtime = 'nodejs'
 
@@ -66,9 +69,30 @@ const buildShellCommand = (command: string, stdin: string) => {
     return `cat <<'${delimiter}' | ${command}\n${stdin}\n${delimiter}`
 }
 
+const writeWorkspaceFromDb = async (ownerUid: string, repoId: string) => {
+    await ensureRepoInitialized(ownerUid, repoId)
+    const entries = await listRepoEntries(ownerUid, repoId)
+
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'itec-repo-'))
+
+    for (const entry of entries) {
+        const targetPath = path.join(tempRoot, entry.path)
+        if (entry.type === 'directory') {
+            await fs.mkdir(targetPath, { recursive: true })
+            continue
+        }
+
+        await fs.mkdir(path.dirname(targetPath), { recursive: true })
+        await fs.writeFile(targetPath, entry.content ?? '', 'utf8')
+    }
+
+    return tempRoot
+}
+
 export async function POST(req: Request) {
     let containerForCleanup: Docker.Container | null = null
     let timeoutId: NodeJS.Timeout | undefined // Adăugat pentru a preveni memory leaks
+    let tempRepoRoot: string | null = null
 
     try {
         const body = (await req.json()) as ExecuteBody
@@ -78,13 +102,9 @@ export async function POST(req: Request) {
         const image = body.image?.trim() || 'python:3.11-alpine'
         const stdin = typeof body.stdin === 'string' ? body.stdin : ''
 
-        // Optimizare: Rulăm I/O pe disc și I/O pe rețeaua Docker în paralel
-        await Promise.all([
-            ensureDockerAvailable().then(() => pullImageIfMissing(image)),
-            ensureRepoRoot(ownerUid, repoId),
-        ])
-
-        const repoRoot = getRepoRootPath(ownerUid, repoId)
+        await ensureDockerAvailable()
+        await pullImageIfMissing(image)
+        tempRepoRoot = await writeWorkspaceFromDb(ownerUid, repoId)
 
         let outputData = ''
         const outputStream = new Writable({
@@ -104,7 +124,7 @@ export async function POST(req: Request) {
                 WorkingDir: '/workspace',
                 HostConfig: {
                     AutoRemove: true,
-                    Binds: [`${repoRoot}:/workspace`],
+                    Binds: [`${tempRepoRoot}:/workspace`],
                     Memory: 256 * 1024 * 1024,
                     NanoCpus: 2_000_000_000,
                 },
@@ -159,5 +179,12 @@ export async function POST(req: Request) {
                   : 500
                   
         return NextResponse.json({ error: message, output: message }, { status })
+    } finally {
+        if (tempRepoRoot) {
+            try {
+                await fs.rm(tempRepoRoot, { recursive: true, force: true })
+            } catch {
+            }
+        }
     }
 }
