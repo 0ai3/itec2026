@@ -377,6 +377,18 @@ export const moveRepoEntry = async (
     throw new Error('Folder subtree not found')
   }
 
+  const subtreePathSet = new Set(subtree.map((entry) => entry.path))
+  for (const entry of subtree) {
+    const suffix = entry.path.slice(fromPath.length)
+    const nextPath = `${toPath}${suffix}`
+    const collidingEntry = entries.find(
+      (candidate) => candidate.path === nextPath && !subtreePathSet.has(candidate.path)
+    )
+    if (collidingEntry) {
+      throw new Error(`Destination path already exists: ${nextPath}`)
+    }
+  }
+
   const patch: Record<string, null | { path: string; type: 'file' | 'directory'; updatedAt: number; content?: string; aiRanges?: RepoAiRange[] }> = {}
   const fileMoves: Array<{ from: string; to: string }> = []
 
@@ -397,8 +409,22 @@ export const moveRepoEntry = async (
     }
 
     if (entry.type === 'file') {
-      nextValue.content = entry.content ?? ''
-      nextValue.aiRanges = normalizeAiRanges(entry.aiRanges)
+      const sourceSnapshot = await get(fileRef(ownerUid, repoId, entry.path))
+      if (!sourceSnapshot.exists()) {
+        throw new Error(`Source file not found during move: ${entry.path}`)
+      }
+
+      const sourceData = sourceSnapshot.val() as {
+        type?: 'file' | 'directory'
+        content?: unknown
+        aiRanges?: unknown
+      }
+      if (sourceData.type !== 'file') {
+        throw new Error(`Source path is not a file during move: ${entry.path}`)
+      }
+
+      nextValue.content = typeof sourceData.content === 'string' ? sourceData.content : ''
+      nextValue.aiRanges = normalizeAiRanges(sourceData.aiRanges)
     }
 
     patch[toEntryKey(nextPath)] = nextValue

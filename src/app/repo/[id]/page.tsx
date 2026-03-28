@@ -307,7 +307,7 @@ function FileTree({
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>, folderPath: string) => {
+  const handleDrop = (e: DragEvent<HTMLElement>, folderPath: string) => {
     e.preventDefault()
     e.stopPropagation()
 
@@ -551,6 +551,32 @@ export default function RepoEditorPage() {
   const activeDragEntryRef = useRef<ExplorerDragPayload | null>(null)
   const dragHoverFolderRef = useRef<string>('')
   const dragMoveTriggeredRef = useRef(false)
+  const moveInFlightRef = useRef(false)
+  const selectedFilePathRef = useRef<string | null>(null)
+  const selectedFileLoadRequestRef = useRef(0)
+  const lastPersistedSnapshotRef = useRef<{ path: string | null; content: string; aiRangesKey: string }>({
+    path: null,
+    content: '',
+    aiRangesKey: '[]',
+  })
+
+  useEffect(() => {
+    selectedFilePathRef.current = selectedFilePath
+  }, [selectedFilePath])
+
+  const handleEditorCodeChange = useCallback((editorFilePath: string, code: string) => {
+    if (selectedFilePathRef.current !== editorFilePath) {
+      return
+    }
+    setSelectedFileContent(code)
+  }, [])
+
+  const handleEditorAiRangesChange = useCallback((editorFilePath: string, ranges: AiRange[]) => {
+    if (selectedFilePathRef.current !== editorFilePath) {
+      return
+    }
+    setSelectedFileAiRanges(ranges)
+  }, [])
 
   // Resize panels
   const sidebar = useResize(220, 140, 400, 'horizontal')
@@ -699,33 +725,92 @@ export default function RepoEditorPage() {
   useEffect(() => {
     const load = async () => {
       if (!ownerUid || !selectedFilePath) return
+      const requestId = selectedFileLoadRequestRef.current + 1
+      selectedFileLoadRequestRef.current = requestId
+      const requestedPath = selectedFilePath
       setIsLoadingSelectedFile(true)
       try {
         const res = await fetch(`/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(repoId)}&filePath=${encodeURIComponent(selectedFilePath)}`)
         const data = (await res.json()) as { content?: string; aiRanges?: AiRange[]; error?: string }
+        if (!res.ok) {
+          throw new Error(data.error || 'Unable to load file')
+        }
+        if (selectedFileLoadRequestRef.current !== requestId) {
+          return
+        }
         const content = data.content ?? ''
+        const normalizedRanges = normalizeAiRanges(data.aiRanges ?? [], content)
         setSelectedFileContent(content)
-        setSelectedFileAiRanges(normalizeAiRanges(data.aiRanges ?? [], content))
+        setSelectedFileAiRanges(normalizedRanges)
+        lastPersistedSnapshotRef.current = {
+          path: requestedPath,
+          content,
+          aiRangesKey: JSON.stringify(normalizedRanges),
+        }
         setPreviewVersionContent('')
         setPreviewVersionAiRanges([])
         setEditorAiRangesToken(p => p + 1); setEditorReplaceSource('user'); setFileMessage(null)
         await loadFileVersions()
       } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
-      setIsLoadingSelectedFile(false)
+      if (selectedFileLoadRequestRef.current === requestId) {
+        setIsLoadingSelectedFile(false)
+      }
     }
     void load()
   }, [ownerUid, repoId, selectedFilePath, loadFileVersions])
 
-  /* ── Auto-save ── */
+  /* ── Auto-save (30s) ── */
   useEffect(() => {
-    if (!ownerUid || !selectedFilePath || isLoadingSelectedFile) return
-    const t = setTimeout(() => {
-      void fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ownerUid, repoId, filePath: selectedFilePath, content: selectedFileContent, aiRanges: selectedFileAiRanges, createVersion: false }) })
-        .then(async r => { if (!r.ok) { const d = await r.json() as { error?: string }; throw new Error(d.error || 'Auto-save failed') } })
-        .catch(e => { if (e instanceof Error) setErrorMessage(e.message) })
-    }, 400)
-    return () => clearTimeout(t)
-  }, [ownerUid, repoId, selectedFilePath, selectedFileContent, selectedFileAiRanges, isLoadingSelectedFile])
+    if (!ownerUid || !selectedFilePath) return
+    const intervalId = setInterval(() => {
+      if (!ownerUid || !selectedFilePath || isLoadingSelectedFile || moveInFlightRef.current || isSavingFile) {
+        return
+      }
+
+      const aiRangesKey = JSON.stringify(selectedFileAiRanges)
+      const lastSnapshot = lastPersistedSnapshotRef.current
+      const hasChanges =
+        lastSnapshot.path !== selectedFilePath ||
+        lastSnapshot.content !== selectedFileContent ||
+        lastSnapshot.aiRangesKey !== aiRangesKey
+
+      if (!hasChanges) {
+        return
+      }
+
+      void fetch('/api/repo-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save',
+          ownerUid,
+          repoId,
+          filePath: selectedFilePath,
+          content: selectedFileContent,
+          aiRanges: selectedFileAiRanges,
+          createVersion: false,
+        }),
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            const data = (await response.json()) as { error?: string }
+            throw new Error(data.error || 'Auto-save failed')
+          }
+          lastPersistedSnapshotRef.current = {
+            path: selectedFilePath,
+            content: selectedFileContent,
+            aiRangesKey,
+          }
+        })
+        .catch((error) => {
+          if (error instanceof Error) {
+            setErrorMessage(error.message)
+          }
+        })
+    }, 30_000)
+
+    return () => clearInterval(intervalId)
+  }, [ownerUid, repoId, selectedFilePath, selectedFileContent, selectedFileAiRanges, isLoadingSelectedFile, isSavingFile])
 
   const handleInvite = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -748,6 +833,11 @@ export default function RepoEditorPage() {
       const res = await fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ownerUid, repoId, filePath: selectedFilePath, content: selectedFileContent, aiRanges: selectedFileAiRanges, createVersion: true }) })
       const data = (await res.json()) as { error?: string }
       if (!res.ok) throw new Error(data.error || 'Unable to save')
+      lastPersistedSnapshotRef.current = {
+        path: selectedFilePath,
+        content: selectedFileContent,
+        aiRangesKey: JSON.stringify(selectedFileAiRanges),
+      }
       setFileMessage(`Saved`)
       await loadFileVersions()
     } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
@@ -900,8 +990,14 @@ export default function RepoEditorPage() {
         data.destinationPath ? remapPathAfterMove(prev, entryPath, data.destinationPath) : prev
       )
 
-      if (selectedFilePath && data.destinationPath) {
-        const nextSelected = remapPathAfterMove(selectedFilePath, entryPath, data.destinationPath)
+      const currentSelectedPath = selectedFilePathRef.current
+      const selectedIsRenamed =
+        currentSelectedPath != null &&
+        data.destinationPath != null &&
+        (currentSelectedPath === entryPath || currentSelectedPath.startsWith(`${entryPath}/`))
+
+      if (selectedIsRenamed && currentSelectedPath && data.destinationPath) {
+        const nextSelected = remapPathAfterMove(currentSelectedPath, entryPath, data.destinationPath)
         setSelectedFilePath(nextSelected)
       }
 
@@ -911,7 +1007,7 @@ export default function RepoEditorPage() {
         setErrorMessage(error.message)
       }
     }
-  }, [ownerUid, repoId, selectedFilePath])
+  }, [ownerUid, repoId])
 
   const moveEntryToPath = useCallback(async (
     sourcePath: string,
@@ -930,6 +1026,7 @@ export default function RepoEditorPage() {
     }
 
     setFileMessage(`Moving ${sourcePath} → ${destinationPath}…`)
+    moveInFlightRef.current = true
 
     try {
       const response = await fetch('/api/repo-files', {
@@ -959,9 +1056,38 @@ export default function RepoEditorPage() {
       setFileTree(data.tree ?? [])
       setSelectedFolderPath((prev) => remapPathAfterMove(prev, sourcePath, movedTo))
 
-      if (selectedFilePath) {
-        const nextSelected = remapPathAfterMove(selectedFilePath, sourcePath, movedTo)
+      const currentSelectedPath = selectedFilePathRef.current
+      const selectedIsMoved =
+        currentSelectedPath != null &&
+        (currentSelectedPath === sourcePath || currentSelectedPath.startsWith(`${sourcePath}/`))
+
+      if (selectedIsMoved && currentSelectedPath) {
+        const nextSelected = remapPathAfterMove(currentSelectedPath, sourcePath, movedTo)
         setSelectedFilePath(nextSelected)
+
+        const reloadResponse = await fetch(
+          `/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(repoId)}&filePath=${encodeURIComponent(nextSelected)}`
+        )
+        const reloadData = (await reloadResponse.json()) as {
+          content?: string
+          aiRanges?: AiRange[]
+          error?: string
+        }
+        if (reloadResponse.ok) {
+          const canonicalContent = reloadData.content ?? ''
+          const canonicalRanges = normalizeAiRanges(reloadData.aiRanges ?? [], canonicalContent)
+          lastPersistedSnapshotRef.current = {
+            path: nextSelected,
+            content: canonicalContent,
+            aiRangesKey: JSON.stringify(canonicalRanges),
+          }
+          setSelectedFileContent(canonicalContent)
+          setSelectedFileAiRanges(canonicalRanges)
+          setEditorReplaceContent(canonicalContent)
+          setEditorReplaceSource('user')
+          setEditorReplaceToken((prev) => prev + 1)
+          setEditorAiRangesToken((prev) => prev + 1)
+        }
       }
 
       setFileMessage('Moved')
@@ -969,8 +1095,10 @@ export default function RepoEditorPage() {
       if (error instanceof Error) {
         setFileMessage(`Move failed: ${error.message}`)
       }
+    } finally {
+      moveInFlightRef.current = false
     }
-  }, [ownerUid, repoId, selectedFilePath])
+  }, [ownerUid, repoId])
 
   const handleMoveEntry = useCallback((entryPath: string, entryType: 'file' | 'directory') => {
     const currentParent = getParentFolderPath(entryPath)
@@ -1301,10 +1429,10 @@ export default function RepoEditorPage() {
         {/* Save button */}
         <button
           onClick={handleSaveFile}
-          disabled={!selectedFilePath || isSavingFile}
+          disabled={!selectedFilePath || isSavingFile || isLoadingSelectedFile}
           style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #30363d', background: 'transparent', color: isSavingFile ? '#8b949e' : '#e6edf3', fontSize: 12, cursor: 'pointer' }}
         >
-          {isSavingFile ? 'Saving…' : '⌘S Save'}
+          {isLoadingSelectedFile ? 'Loading…' : isSavingFile ? 'Saving…' : '⌘S Save'}
         </button>
 
         {/* Invite (owner only, colapsabil) */}
@@ -1508,13 +1636,13 @@ export default function RepoEditorPage() {
                   roomId={effectiveEditorRoom}
                   language={editorLanguage}
                   initialCode={selectedFileContent}
-                  onCodeChange={setSelectedFileContent}
+                  onCodeChange={(code) => handleEditorCodeChange(selectedFilePath, code)}
                   replaceContentToken={editorReplaceToken}
                   replaceContentValue={editorReplaceContent}
                   replaceContentSource={editorReplaceSource}
                   initialAiRanges={selectedFileAiRanges}
                   aiRangesToken={editorAiRangesToken}
-                  onAiRangesChange={(r) => setSelectedFileAiRanges(r)}
+                  onAiRangesChange={(ranges) => handleEditorAiRangesChange(selectedFilePath, ranges)}
                   embedded
                 />
               ) : (
