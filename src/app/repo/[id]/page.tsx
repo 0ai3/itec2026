@@ -38,6 +38,11 @@ type RepoFileNode = {
   children?: RepoFileNode[]
 }
 
+type FileVersionSummary = {
+  id: string
+  createdAt: number
+}
+
 const generateAiRangeId = () => Math.random().toString(36).slice(2, 10)
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
@@ -382,6 +387,13 @@ export default function RepoEditorPage() {
   const [editorReplaceSource, setEditorReplaceSource] = useState<'ai' | 'user'>('user')
   const [selectedFileAiRanges, setSelectedFileAiRanges] = useState<AiRange[]>([])
   const [editorAiRangesToken, setEditorAiRangesToken] = useState(0)
+  const [fileVersions, setFileVersions] = useState<FileVersionSummary[]>([])
+  const [selectedVersionIndex, setSelectedVersionIndex] = useState<number | null>(null)
+  const [previewVersionContent, setPreviewVersionContent] = useState('')
+  const [previewVersionAiRanges, setPreviewVersionAiRanges] = useState<AiRange[]>([])
+  const [isLoadingVersionHistory, setIsLoadingVersionHistory] = useState(false)
+  const [isLoadingVersionPreview, setIsLoadingVersionPreview] = useState(false)
+  const [isRestoringVersion, setIsRestoringVersion] = useState(false)
 
   // UI state
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -499,6 +511,38 @@ export default function RepoEditorPage() {
     return () => clearInterval(interval)
   }, [ownerUid, loadFileTree])
 
+  const loadFileVersions = useCallback(async () => {
+    if (!ownerUid || !selectedFilePath) {
+      setFileVersions([])
+      setSelectedVersionIndex(null)
+      setPreviewVersionContent('')
+      setPreviewVersionAiRanges([])
+      return
+    }
+
+    setIsLoadingVersionHistory(true)
+    try {
+      const response = await fetch(
+        `/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(repoId)}&filePath=${encodeURIComponent(selectedFilePath)}&history=1`
+      )
+      const data = (await response.json()) as { versions?: FileVersionSummary[]; error?: string }
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to load file history')
+      }
+
+      const versions = (data.versions ?? []).sort((a, b) => a.createdAt - b.createdAt)
+      setFileVersions(versions)
+      setSelectedVersionIndex(versions.length ? versions.length - 1 : null)
+      setPreviewVersionContent('')
+      setPreviewVersionAiRanges([])
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message)
+      }
+    }
+    setIsLoadingVersionHistory(false)
+  }, [ownerUid, repoId, selectedFilePath])
+
   /* ── Selected file ── */
   useEffect(() => {
     const load = async () => {
@@ -510,18 +554,21 @@ export default function RepoEditorPage() {
         const content = data.content ?? ''
         setSelectedFileContent(content)
         setSelectedFileAiRanges(normalizeAiRanges(data.aiRanges ?? [], content))
+        setPreviewVersionContent('')
+        setPreviewVersionAiRanges([])
         setEditorAiRangesToken(p => p + 1); setEditorReplaceSource('user'); setFileMessage(null)
+        await loadFileVersions()
       } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
       setIsLoadingSelectedFile(false)
     }
     void load()
-  }, [ownerUid, repoId, selectedFilePath])
+  }, [ownerUid, repoId, selectedFilePath, loadFileVersions])
 
   /* ── Auto-save ── */
   useEffect(() => {
     if (!ownerUid || !selectedFilePath || isLoadingSelectedFile) return
     const t = setTimeout(() => {
-      void fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ownerUid, repoId, filePath: selectedFilePath, content: selectedFileContent, aiRanges: selectedFileAiRanges }) })
+      void fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ownerUid, repoId, filePath: selectedFilePath, content: selectedFileContent, aiRanges: selectedFileAiRanges, createVersion: false }) })
         .then(async r => { if (!r.ok) { const d = await r.json() as { error?: string }; throw new Error(d.error || 'Auto-save failed') } })
         .catch(e => { if (e instanceof Error) setErrorMessage(e.message) })
     }, 400)
@@ -546,13 +593,95 @@ export default function RepoEditorPage() {
     if (!ownerUid || !selectedFilePath) return
     setIsSavingFile(true); setFileMessage(null)
     try {
-      const res = await fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ownerUid, repoId, filePath: selectedFilePath, content: selectedFileContent, aiRanges: selectedFileAiRanges }) })
+      const res = await fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ownerUid, repoId, filePath: selectedFilePath, content: selectedFileContent, aiRanges: selectedFileAiRanges, createVersion: true }) })
       const data = (await res.json()) as { error?: string }
       if (!res.ok) throw new Error(data.error || 'Unable to save')
       setFileMessage(`Saved`)
+      await loadFileVersions()
     } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
     setIsSavingFile(false)
   }
+
+  const handleTimelinePreview = useCallback(async (index: number) => {
+    if (!ownerUid || !selectedFilePath) {
+      return
+    }
+
+    const version = fileVersions[index]
+    if (!version) {
+      return
+    }
+
+    setSelectedVersionIndex(index)
+    setIsLoadingVersionPreview(true)
+    try {
+      const response = await fetch(
+        `/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(repoId)}&filePath=${encodeURIComponent(selectedFilePath)}&versionId=${encodeURIComponent(version.id)}`
+      )
+      const data = (await response.json()) as { content?: string; aiRanges?: AiRange[]; error?: string }
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to load file version')
+      }
+
+      const content = data.content ?? ''
+      setPreviewVersionContent(content)
+      setPreviewVersionAiRanges(normalizeAiRanges(data.aiRanges ?? [], content))
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message)
+      }
+    }
+    setIsLoadingVersionPreview(false)
+  }, [ownerUid, repoId, selectedFilePath, fileVersions])
+
+  const handleRestoreSelectedVersion = useCallback(async () => {
+    if (!ownerUid || !selectedFilePath || selectedVersionIndex == null) {
+      return
+    }
+
+    setIsRestoringVersion(true)
+    try {
+      const response = await fetch('/api/repo-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save',
+          ownerUid,
+          repoId,
+          filePath: selectedFilePath,
+          content: previewVersionContent,
+          aiRanges: previewVersionAiRanges,
+          createVersion: true,
+        }),
+      })
+      const data = (await response.json()) as { error?: string }
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to restore selected version')
+      }
+
+      setSelectedFileContent(previewVersionContent)
+      setSelectedFileAiRanges(previewVersionAiRanges)
+      setEditorReplaceContent(previewVersionContent)
+      setEditorReplaceSource('user')
+      setEditorReplaceToken((prev) => prev + 1)
+      setEditorAiRangesToken((prev) => prev + 1)
+      setFileMessage('Version restored')
+      await loadFileVersions()
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message)
+      }
+    }
+    setIsRestoringVersion(false)
+  }, [
+    ownerUid,
+    selectedFilePath,
+    selectedVersionIndex,
+    previewVersionContent,
+    previewVersionAiRanges,
+    repoId,
+    loadFileVersions,
+  ])
 
   const handleCreateFile = async () => {
     if (!ownerUid) return
@@ -614,6 +743,13 @@ export default function RepoEditorPage() {
   const editorLanguage = useMemo(() => getLanguageFromFilePath(selectedFilePath), [selectedFilePath])
   const effectiveEditorRoom = `${collaborationRoomId}:${selectedFilePath ?? 'root'}`
   const runtimeDefaults = useMemo(() => getRuntimeConfigForFilePath(selectedFilePath), [selectedFilePath])
+  const selectedVersion =
+    selectedVersionIndex != null && selectedVersionIndex >= 0
+      ? fileVersions[selectedVersionIndex] ?? null
+      : null
+  const selectedVersionTimeLabel = selectedVersion
+    ? new Date(selectedVersion.createdAt).toLocaleString()
+    : '—'
 
   /* ── Loading / Error screens ── */
   if (isCheckingAccess) return (
@@ -719,6 +855,78 @@ export default function RepoEditorPage() {
           </div>
         )}
       </div>
+
+      {selectedFilePath && fileVersions.length > 0 && (
+        <div style={{ borderBottom: '1px solid #21262d', background: '#0f141b', padding: '8px 16px', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ fontSize: 11, color: '#8b949e', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+              Time travel
+            </span>
+            <span style={{ fontSize: 11, color: '#8b949e' }}>
+              {isLoadingVersionHistory ? 'loading history…' : `${fileVersions.length} checkpoints`}
+            </span>
+            <span style={{ fontSize: 11, color: '#8b949e' }}>Selected: {selectedVersionTimeLabel}</span>
+            <div style={{ flex: 1 }} />
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedVersionIndex(fileVersions.length ? fileVersions.length - 1 : null)
+                setPreviewVersionContent('')
+                setPreviewVersionAiRanges([])
+              }}
+              style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #30363d', background: 'transparent', color: '#8b949e', fontSize: 11, cursor: 'pointer' }}
+            >
+              Live
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRestoreSelectedVersion()}
+              disabled={isRestoringVersion || selectedVersionIndex == null}
+              style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #30363d', background: isRestoringVersion ? '#30363d' : '#1f6feb', color: '#fff', fontSize: 11, cursor: 'pointer', opacity: isRestoringVersion || selectedVersionIndex == null ? 0.7 : 1 }}
+            >
+              {isRestoringVersion ? 'Restoring…' : 'Restore this version'}
+            </button>
+          </div>
+
+          <input
+            type="range"
+            min={0}
+            max={Math.max(0, fileVersions.length - 1)}
+            step={1}
+            value={selectedVersionIndex ?? Math.max(0, fileVersions.length - 1)}
+            onChange={(event) => {
+              const idx = Number(event.target.value)
+              void handleTimelinePreview(idx)
+            }}
+            style={{ width: '100%' }}
+          />
+
+          {isLoadingVersionPreview ? (
+            <p style={{ marginTop: 6, fontSize: 11, color: '#8b949e' }}>Loading preview…</p>
+          ) : previewVersionContent ? (
+            <pre
+              style={{
+                marginTop: 6,
+                maxHeight: 120,
+                overflow: 'auto',
+                background: '#0d1117',
+                border: '1px solid #21262d',
+                borderRadius: 6,
+                padding: '8px 10px',
+                color: '#c9d1d9',
+                fontSize: 11,
+                lineHeight: 1.4,
+              }}
+            >
+              {previewVersionContent.slice(0, 5000)}
+            </pre>
+          ) : (
+            <p style={{ marginTop: 6, fontSize: 11, color: '#6e7681' }}>
+              Move the slider to preview an older version, then click “Restore this version”.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ── Workspace ── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>

@@ -5,7 +5,9 @@ import {
   deleteRepoFolder,
   ensureRepoInitialized,
   getRepoFileData,
+  getRepoFileVersion,
   listRepoEntries,
+  listRepoFileVersions,
   type RepoAiRange,
   upsertRepoFile,
   upsertRepoFolder,
@@ -26,10 +28,28 @@ export async function GET(request: Request) {
     const ownerUid = getParam(searchParams.get('ownerUid'), 'ownerUid')
     const repoId = getParam(searchParams.get('repoId'), 'repoId')
     const filePath = searchParams.get('filePath')?.trim()
+    const history = searchParams.get('history')?.trim() === '1'
+    const versionId = searchParams.get('versionId')?.trim()
 
     await ensureRepoInitialized(ownerUid, repoId)
 
     if (filePath) {
+      if (history) {
+        const versions = await listRepoFileVersions(ownerUid, repoId, filePath)
+        return NextResponse.json({ filePath, versions })
+      }
+
+      if (versionId) {
+        const versionData = await getRepoFileVersion(ownerUid, repoId, filePath, versionId)
+        return NextResponse.json({
+          filePath,
+          versionId: versionData.id,
+          createdAt: versionData.createdAt,
+          content: versionData.content,
+          aiRanges: versionData.aiRanges,
+        })
+      }
+
       const fileData = await getRepoFileData(ownerUid, repoId, filePath)
       return NextResponse.json({ filePath, content: fileData.content, aiRanges: fileData.aiRanges })
     }
@@ -53,6 +73,7 @@ type PostBody = {
   folderPath?: string
   content?: string
   aiRanges?: RepoAiRange[]
+  createVersion?: boolean
 }
 
 export async function POST(request: Request) {
@@ -75,13 +96,17 @@ export async function POST(request: Request) {
 
     if (action === 'save') {
       const filePath = getParam(body.filePath?.trim() ?? null, 'filePath')
-      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '', body.aiRanges ?? [])
+      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '', body.aiRanges ?? [], {
+        createVersion: body.createVersion ?? true,
+      })
       return NextResponse.json({ ok: true })
     }
 
     if (action === 'create-file') {
       const filePath = getParam(body.filePath?.trim() ?? null, 'filePath')
-      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '', body.aiRanges ?? [])
+      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '', body.aiRanges ?? [], {
+        createVersion: body.createVersion ?? (body.content?.length ? true : false),
+      })
       const entries = await listRepoEntries(ownerUid, repoId)
       const tree = buildRepoTreeFromEntries(entries)
       return NextResponse.json({ ok: true, tree })

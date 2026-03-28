@@ -6,7 +6,7 @@ import { Writable } from 'node:stream'
 import { NextResponse } from 'next/server'
 import { ensureRepoInitialized, listRepoEntries } from '@/lib/repo-db-storage'
 import { ESLint } from 'eslint'
-// @ts-ignore
+// @ts-expect-error - plugin package does not provide default export typings
 import pluginSecurity from 'eslint-plugin-security'
 
 export const runtime = 'nodejs'

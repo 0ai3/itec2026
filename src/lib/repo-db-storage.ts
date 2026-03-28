@@ -15,6 +15,16 @@ export type RepoAiRange = {
   endColumn: number
 }
 
+export type RepoFileVersionSummary = {
+  id: string
+  createdAt: number
+}
+
+export type RepoFileVersionData = RepoFileVersionSummary & {
+  content: string
+  aiRanges: RepoAiRange[]
+}
+
 type RepoEntry = {
   path: string
   type: 'file' | 'directory'
@@ -84,6 +94,21 @@ const toEntryKey = (relativePath: string) => {
 const filesRootPath = (ownerUid: string, repoId: string) =>
   `users/${ownerUid}/repos/${repoId}/files`
 
+const fileHistoryRootPath = (ownerUid: string, repoId: string, relativePath: string) => {
+  const normalized = normalizeRelativePath(relativePath)
+  if (!normalized) {
+    throw new Error('Invalid file path')
+  }
+
+  const fileId = toEntryKey(normalized)
+  return `users/${ownerUid}/repos/${repoId}/history/${fileId}`
+}
+
+const fileHistoryRootRef = (ownerUid: string, repoId: string, relativePath: string) => {
+  const db = getServerRealtimeDb()
+  return ref(db, fileHistoryRootPath(ownerUid, repoId, relativePath))
+}
+
 const filesRootRef = (ownerUid: string, repoId: string) => {
   const db = getServerRealtimeDb()
   return ref(db, filesRootPath(ownerUid, repoId))
@@ -148,17 +173,77 @@ export const upsertRepoFile = async (
   repoId: string,
   filePath: string,
   content: string,
-  aiRanges: RepoAiRange[] = []
+  aiRanges: RepoAiRange[] = [],
+  options?: { createVersion?: boolean }
 ) => {
   const normalizedPath = normalizeRelativePath(filePath)
+  const normalizedRanges = normalizeAiRanges(aiRanges)
   const targetFileRef = fileRef(ownerUid, repoId, normalizedPath)
   await set(targetFileRef, {
       path: normalizedPath,
       type: 'file',
       content,
-      aiRanges: normalizeAiRanges(aiRanges),
+      aiRanges: normalizedRanges,
       updatedAt: Date.now(),
     })
+
+  if (options?.createVersion ?? true) {
+    const versionId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    const versionRef = ref(getServerRealtimeDb(), `${fileHistoryRootPath(ownerUid, repoId, normalizedPath)}/${versionId}`)
+    await set(versionRef, {
+      createdAt: Date.now(),
+      content,
+      aiRanges: normalizedRanges,
+    })
+  }
+}
+
+export const listRepoFileVersions = async (
+  ownerUid: string,
+  repoId: string,
+  filePath: string,
+  limit = 100
+): Promise<RepoFileVersionSummary[]> => {
+  const snapshot = await get(fileHistoryRootRef(ownerUid, repoId, filePath))
+  if (!snapshot.exists()) {
+    return []
+  }
+
+  const versions = snapshot.val() as Record<string, { createdAt?: unknown }>
+  return Object.entries(versions)
+    .map(([id, value]) => ({
+      id,
+      createdAt: Number(value.createdAt) || 0,
+    }))
+    .filter((entry) => entry.createdAt > 0)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(-Math.max(1, limit))
+}
+
+export const getRepoFileVersion = async (
+  ownerUid: string,
+  repoId: string,
+  filePath: string,
+  versionId: string
+): Promise<RepoFileVersionData> => {
+  const versionRef = ref(getServerRealtimeDb(), `${fileHistoryRootPath(ownerUid, repoId, filePath)}/${versionId}`)
+  const snapshot = await get(versionRef)
+  if (!snapshot.exists()) {
+    throw new Error('Version not found')
+  }
+
+  const data = snapshot.val() as { createdAt?: unknown; content?: unknown; aiRanges?: unknown }
+  const createdAt = Number(data.createdAt) || 0
+  if (!createdAt) {
+    throw new Error('Invalid version metadata')
+  }
+
+  return {
+    id: versionId,
+    createdAt,
+    content: typeof data.content === 'string' ? data.content : '',
+    aiRanges: normalizeAiRanges(data.aiRanges),
+  }
 }
 
 export const upsertRepoFolder = async (ownerUid: string, repoId: string, folderPath: string) => {
