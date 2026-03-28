@@ -101,6 +101,7 @@ const writeWorkspaceFromDb = async (ownerUid: string, repoId: string) => {
     return tempRoot
 }
 
+// PAZNICUL DE SECURITATE (SAST)
 async function scanJavaScriptCode(code: string) {
     const eslint = new ESLint({
         overrideConfigFile: true,
@@ -151,31 +152,30 @@ export async function POST(req: Request) {
         await ensureDockerAvailable()
         await pullImageIfMissing(image)
         tempRepoRoot = await writeWorkspaceFromDb(ownerUid, repoId)
-// Scanăm doar dacă e vorba de Node sau Deno (JavaScript/TypeScript)
+
+        // --- EXECUTĂM SCANAREA DE SECURITATE ---
         if (image.includes('node') || image.includes('deno')) {
-// Extragem numele fișierului din comanda "node fisier.js"
-         const filePathMatch = command.match(/["']?([^"']+\.(?:js|ts|jsx|tsx))["']?$/i);
+            const filePathMatch = command.match(/["']?([^"']+\.(?:js|ts|jsx|tsx))["']?$/i);
 
-         if (filePathMatch) {
-            // Acum folosim tempRepoRoot pe care tocmai l-ai generat mai sus!
-            const fullPath = path.join(tempRepoRoot, filePathMatch[1])
+            if (filePathMatch) {
+                const fullPath = path.join(tempRepoRoot, filePathMatch[1])
 
-            try{
-                const codeToScan = await fs.readFile(fullPath, 'utf8');
-                const securityAlerts = await scanJavaScriptCode(codeToScan);
+                try {
+                    const codeToScan = await fs.readFile(fullPath, 'utf8');
+                    const securityAlerts = await scanJavaScriptCode(codeToScan);
 
-                if(securityAlerts) {
-                    // Oprim execuția și returnăm cod 403 (Forbidden)
-                    return NextResponse.json({
-                        error: "Executie blocata din motive de securitate!",
-                        output: `Alerta de securitate:\n\n${securityAlerts}`
-                    }, {status: 403});
+                    if (securityAlerts) {
+                        return NextResponse.json({
+                            error: "Executie blocata din motive de securitate!",
+                            output: `🛡️ Alerta de securitate:\n\n${securityAlerts}`
+                        }, { status: 403 });
+                    }
+                } catch (e) {
+                    console.log("Nu am putut citi fisierul pt scanare", e);
                 }
-            }catch(e){
-                console.log("Nu am putut citi fisierul pt scanare", e);
             }
-         }
         }
+        // --- SFÂRȘIT SCANARE ---
 
         let outputData = ''
         const outputStream = new Writable({
@@ -194,7 +194,7 @@ export async function POST(req: Request) {
                 Cmd: ['sh', '-lc', wrappedCommand],
                 WorkingDir: '/workspace',
                 HostConfig: {
-                    AutoRemove: false,
+                    AutoRemove: false, // Colegul a dezactivat AutoRemove ca să îl șteargă forțat în finally
                     Binds: [`${tempRepoRoot}:/workspace`],
                     Memory: 256 * 1024 * 1024,
                     NanoCpus: 2_000_000_000,
@@ -218,7 +218,6 @@ export async function POST(req: Request) {
             StatusCode?: number
         }
 
-        // Optimizare: Oprim timer-ul dacă execuția s-a terminat cu succes (eliberăm Event Loop-ul)
         if (timeoutId) clearTimeout(timeoutId)
 
         const statusCode = result?.StatusCode ?? 0
@@ -228,14 +227,13 @@ export async function POST(req: Request) {
             exitCode: statusCode,
         })
     } catch (error) {
-        // Curățăm timer-ul și în caz de eroare
         if (timeoutId) clearTimeout(timeoutId)
 
         if (error instanceof Error && error.message.includes('Timeout') && containerForCleanup) {
             try {
                 await (containerForCleanup as Docker.Container).kill()
             } catch {
-                // Ignorăm eroarea dacă a fost deja distrus
+                // Ignorăm
             }
         }
 
@@ -251,17 +249,21 @@ export async function POST(req: Request) {
                   
         return NextResponse.json({ error: message, output: message }, { status })
     } finally {
+        // Curățarea agresivă adăugată de colegul tău
         if (containerForCleanup) {
             try {
                 await (containerForCleanup as Docker.Container).remove({ force: true })
             } catch {
+                // Ignorăm
             }
         }
 
+        // Curățarea fișierelor tale
         if (tempRepoRoot) {
             try {
                 await fs.rm(tempRepoRoot, { recursive: true, force: true })
             } catch {
+                // Ignorăm
             }
         }
     }
