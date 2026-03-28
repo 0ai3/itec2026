@@ -442,10 +442,10 @@ export default function SyncedTerminal({
   }
 
   return (
-    <div className="border border-black/10 rounded-xl p-3 relative z-10">
+    <div className="border border-white/10 rounded-xl p-3 relative z-10 bg-[#111a2c] text-gray-100">
       <div className="flex items-center justify-between mb-2">
         <h3 className="font-semibold">Synced Terminal</h3>
-        <p className="text-xs text-gray-500">Status: {connectionStatus}</p>
+        <p className="text-xs text-gray-400">Status: {connectionStatus}</p>
       </div>
 
       <div className="grid md:grid-cols-[220px_auto_auto] gap-2 items-center">
@@ -461,7 +461,7 @@ export default function SyncedTerminal({
         <button
           type="button"
           onClick={handleClearOutput}
-          className="border border-black/20 rounded px-4 py-2 text-sm"
+          className="border border-white/20 rounded px-4 py-2 text-sm hover:bg-white/10"
         >
           Clear
         </button>
@@ -501,7 +501,7 @@ export default function SyncedTerminal({
           />
         </div>
       </div>
-      <p className="mt-2 text-xs text-gray-500">
+      <p className="mt-2 text-xs text-gray-400">
         {pendingInputCommand
           ? 'Input mode: Enter sends input to the running program. Type /cancel to exit input mode.'
           : 'Press Enter to run. Use ↑/↓ for command history.'}

@@ -4,8 +4,9 @@ import {
   deleteRepoFile,
   deleteRepoFolder,
   ensureRepoInitialized,
-  getRepoFileContent,
+  getRepoFileData,
   listRepoEntries,
+  type RepoAiRange,
   upsertRepoFile,
   upsertRepoFolder,
 } from '@/lib/repo-db-storage'
@@ -29,8 +30,8 @@ export async function GET(request: Request) {
     await ensureRepoInitialized(ownerUid, repoId)
 
     if (filePath) {
-      const content = await getRepoFileContent(ownerUid, repoId, filePath)
-      return NextResponse.json({ filePath, content })
+      const fileData = await getRepoFileData(ownerUid, repoId, filePath)
+      return NextResponse.json({ filePath, content: fileData.content, aiRanges: fileData.aiRanges })
     }
 
     const entries = await listRepoEntries(ownerUid, repoId)
@@ -51,6 +52,7 @@ type PostBody = {
   filePath?: string
   folderPath?: string
   content?: string
+  aiRanges?: RepoAiRange[]
 }
 
 export async function POST(request: Request) {
@@ -73,13 +75,13 @@ export async function POST(request: Request) {
 
     if (action === 'save') {
       const filePath = getParam(body.filePath?.trim() ?? null, 'filePath')
-      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '')
+      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '', body.aiRanges ?? [])
       return NextResponse.json({ ok: true })
     }
 
     if (action === 'create-file') {
       const filePath = getParam(body.filePath?.trim() ?? null, 'filePath')
-      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '')
+      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '', body.aiRanges ?? [])
       const entries = await listRepoEntries(ownerUid, repoId)
       const tree = buildRepoTreeFromEntries(entries)
       return NextResponse.json({ ok: true, tree })

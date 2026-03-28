@@ -1,11 +1,18 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type Monaco = typeof import('monaco-editor')
 type Yjs = typeof import('yjs')
 type YWebsocket = typeof import('y-websocket')
 type YMonaco = typeof import('y-monaco')
+
+type AiRange = {
+	startLineNumber: number
+	startColumn: number
+	endLineNumber: number
+	endColumn: number
+}
 
 declare global {
 	interface Window {
@@ -22,6 +29,11 @@ type EditorProps = {
 	onCodeChange?: (code: string) => void
 	replaceContentToken?: number
 	replaceContentValue?: string
+	replaceContentSource?: 'ai' | 'user'
+	initialAiRanges?: AiRange[]
+	aiRangesToken?: number
+	onAiRangesChange?: (ranges: AiRange[]) => void
+	embedded?: boolean
 }
 
 export default function Editor({
@@ -31,13 +43,30 @@ export default function Editor({
 	onCodeChange,
 	replaceContentToken,
 	replaceContentValue,
+	replaceContentSource = 'user',
+	initialAiRanges,
+	aiRangesToken,
+	onAiRangesChange,
+	embedded = false,
 }: EditorProps) {
 	const transportRoomId = encodeURIComponent(roomId)
 	const initialCodeRef = useRef(initialCode)
 	const onCodeChangeRef = useRef<EditorProps['onCodeChange']>(onCodeChange)
 	const replaceContentValueRef = useRef(replaceContentValue)
+	const replaceContentSourceRef = useRef<EditorProps['replaceContentSource']>(replaceContentSource)
+	const initialAiRangesRef = useRef<AiRange[]>(initialAiRanges ?? [])
+	const onAiRangesChangeRef = useRef<EditorProps['onAiRangesChange']>(onAiRangesChange)
+	const appliedAiRangesTokenRef = useRef<number | null>(null)
+	const aiRangesRef = useRef<AiRange[]>([])
+	const aiDecorationIdsRef = useRef<string[]>([])
+	const aiMetaRef = useRef<import('yjs').Map<string> | null>(null)
+	const lastBroadcastAiRangesRef = useRef('')
+	const pendingRenderRangesRef = useRef<AiRange[] | null>(null)
+	const renderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const appliedReplaceTokenRef = useRef<number | null>(null)
 	const completionAbortRef = useRef<AbortController | null>(null)
+	const monacoRef = useRef<Monaco | null>(null)
+	const pendingInlineCompletionRef = useRef<string | null>(null)
 	const containerRef = useRef<HTMLDivElement | null>(null)
 	const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null)
 	const ydocRef = useRef<import('yjs').Doc | null>(null)
@@ -52,6 +81,112 @@ export default function Editor({
 	useEffect(() => {
 		replaceContentValueRef.current = replaceContentValue
 	}, [replaceContentValue])
+
+	useEffect(() => {
+		replaceContentSourceRef.current = replaceContentSource
+	}, [replaceContentSource])
+
+	useEffect(() => {
+		initialAiRangesRef.current = initialAiRanges ?? []
+	}, [initialAiRanges])
+
+	useEffect(() => {
+		onAiRangesChangeRef.current = onAiRangesChange
+	}, [onAiRangesChange])
+
+	const normalizeRanges = useCallback((ranges: AiRange[]) => {
+		return ranges
+			.map((range) => {
+				const startLineNumber = Math.max(1, Math.floor(range.startLineNumber))
+				const startColumn = Math.max(1, Math.floor(range.startColumn))
+				const endLineNumber = Math.max(startLineNumber, Math.floor(range.endLineNumber))
+				const endColumn =
+					endLineNumber === startLineNumber
+						? Math.max(startColumn, Math.floor(range.endColumn))
+						: Math.max(1, Math.floor(range.endColumn))
+				return { startLineNumber, startColumn, endLineNumber, endColumn }
+			})
+			.sort((a, b) =>
+				a.startLineNumber === b.startLineNumber
+					? a.startColumn === b.startColumn
+						? a.endLineNumber === b.endLineNumber
+							? a.endColumn - b.endColumn
+							: a.endLineNumber - b.endLineNumber
+						: a.startColumn - b.startColumn
+					: a.startLineNumber - b.startLineNumber
+			)
+	}, [])
+
+	const emitAiRangesChange = useCallback(() => {
+		onAiRangesChangeRef.current?.([...aiRangesRef.current])
+	}, [])
+
+	const renderAiRanges = useCallback((ranges: AiRange[]) => {
+		const editor = editorRef.current
+		const monaco = monacoRef.current
+		if (!editor || !monaco) {
+			return
+		}
+
+		const decorations = ranges.map((range) => ({
+			range: new monaco.Range(
+				range.startLineNumber,
+				range.startColumn,
+				range.endLineNumber,
+				range.endColumn
+			),
+			options: {
+				inlineClassName: 'ai-generated-code-bg',
+				stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+			},
+		}))
+
+		aiDecorationIdsRef.current = editor.deltaDecorations(aiDecorationIdsRef.current, decorations)
+	}, [])
+
+	const scheduleRenderAiRanges = useCallback(
+		(ranges: AiRange[]) => {
+			pendingRenderRangesRef.current = ranges
+
+			if (renderTimerRef.current) {
+				return
+			}
+
+			renderTimerRef.current = setTimeout(() => {
+				renderTimerRef.current = null
+				const nextRanges = pendingRenderRangesRef.current
+				pendingRenderRangesRef.current = null
+				if (!nextRanges) {
+					return
+				}
+				renderAiRanges(nextRanges)
+			}, 0)
+		},
+		[renderAiRanges]
+	)
+
+	const applyAiRanges = useCallback((ranges: AiRange[], options?: { broadcast?: boolean }) => {
+		const normalized = normalizeRanges(ranges)
+		aiRangesRef.current = normalized
+		emitAiRangesChange()
+		scheduleRenderAiRanges(normalized)
+
+		if (options?.broadcast === false) {
+			return
+		}
+
+		const payload = JSON.stringify(normalized)
+		if (payload === lastBroadcastAiRangesRef.current) {
+			return
+		}
+
+		lastBroadcastAiRangesRef.current = payload
+		aiMetaRef.current?.set('aiRanges', payload)
+	}, [emitAiRangesChange, normalizeRanges, scheduleRenderAiRanges])
+
+	const addAiRange = useCallback((range: AiRange) => {
+		applyAiRanges([...aiRangesRef.current, range])
+	}, [applyAiRanges])
 
 	useEffect(() => {
 		if (typeof replaceContentToken !== 'number') {
@@ -73,12 +208,39 @@ export default function Editor({
 		const nextValue = replaceContentValueRef.current ?? ''
 		model.setValue(nextValue)
 		onCodeChangeRef.current?.(nextValue)
-	}, [replaceContentToken])
+
+		if (replaceContentSourceRef.current === 'ai' && nextValue.trim()) {
+			const endLineNumber = model.getLineCount()
+			const endColumn = model.getLineMaxColumn(endLineNumber)
+			applyAiRanges([
+				{
+				startLineNumber: 1,
+				startColumn: 1,
+				endLineNumber,
+				endColumn,
+				},
+			])
+		}
+	}, [applyAiRanges, replaceContentToken])
+
+	useEffect(() => {
+		if (typeof aiRangesToken !== 'number') {
+			return
+		}
+
+		if (appliedAiRangesTokenRef.current === aiRangesToken) {
+			return
+		}
+
+		appliedAiRangesTokenRef.current = aiRangesToken
+		applyAiRanges(initialAiRangesRef.current ?? [])
+	}, [aiRangesToken, applyAiRanges])
 
 	useEffect(() => {
 		let disposed = false
 		let removeStatusListener: (() => void) | null = null
 		let removeSyncListener: (() => void) | null = null
+		let removeAiMetaListener: (() => void) | null = null
 		let removeContentListener: (() => void) | null = null
 		let removeInlineProvider: (() => void) | null = null
 		let initialSeedApplied = false
@@ -89,6 +251,7 @@ export default function Editor({
 			}
 
 			const monaco: Monaco = await import('monaco-editor')
+			monacoRef.current = monaco
 			const Y: Yjs = await import('yjs')
 			const { WebsocketProvider }: YWebsocket = await import('y-websocket')
 			const { MonacoBinding }: YMonaco = await import('y-monaco')
@@ -192,6 +355,8 @@ export default function Editor({
 							return { items: [] }
 						}
 
+						pendingInlineCompletionRef.current = completion
+
 						return {
 							items: [
 								{
@@ -217,7 +382,31 @@ export default function Editor({
 				inlineProvider.dispose()
 			}
 
-			const contentDisposable = editorRef.current.onDidChangeModelContent(() => {
+			const contentDisposable = editorRef.current.onDidChangeModelContent((event) => {
+				const editor = editorRef.current
+				const model = editor?.getModel()
+				if (editor && model && pendingInlineCompletionRef.current) {
+					const accepted = event.changes.find(
+						(change) =>
+							change.rangeLength === 0 &&
+							change.text.length > 0 &&
+							change.text === pendingInlineCompletionRef.current
+					)
+
+					if (accepted) {
+						const start = model.getPositionAt(accepted.rangeOffset)
+						const end = model.getPositionAt(accepted.rangeOffset + accepted.text.length)
+						addAiRange({
+							startLineNumber: start.lineNumber,
+							startColumn: start.column,
+							endLineNumber: end.lineNumber,
+							endColumn: end.column,
+						})
+					}
+
+					pendingInlineCompletionRef.current = null
+				}
+
 				onCodeChangeRef.current?.(editorRef.current?.getValue() ?? '')
 			})
 			removeContentListener = () => {
@@ -226,6 +415,68 @@ export default function Editor({
 
 			const ydoc = new Y.Doc()
 			ydocRef.current = ydoc
+			const aiMeta = ydoc.getMap<string>('meta')
+			aiMetaRef.current = aiMeta
+
+			const parseAiRangesPayload = (payload: string) => {
+				try {
+					const parsed = JSON.parse(payload) as unknown
+					if (!Array.isArray(parsed)) {
+						return null
+					}
+					return parsed
+						.map((entry) => {
+							const range = entry as {
+								startLineNumber?: unknown
+								startColumn?: unknown
+								endLineNumber?: unknown
+								endColumn?: unknown
+							}
+							if (
+								typeof range.startLineNumber !== 'number' ||
+								typeof range.startColumn !== 'number' ||
+								typeof range.endLineNumber !== 'number' ||
+								typeof range.endColumn !== 'number'
+							) {
+								return null
+							}
+							return {
+								startLineNumber: range.startLineNumber,
+								startColumn: range.startColumn,
+								endLineNumber: range.endLineNumber,
+								endColumn: range.endColumn,
+							}
+						})
+						.filter((range): range is AiRange => Boolean(range))
+				} catch {
+					return null
+				}
+			}
+
+			const syncAiRangesFromMeta = () => {
+				const payload = aiMeta.get('aiRanges')
+				if (typeof payload !== 'string') {
+					return false
+				}
+
+				lastBroadcastAiRangesRef.current = payload
+				const parsedRanges = parseAiRangesPayload(payload)
+				if (!parsedRanges) {
+					return false
+				}
+
+				applyAiRanges(parsedRanges, { broadcast: false })
+				return true
+			}
+
+			const onAiMetaChange = () => {
+				syncAiRangesFromMeta()
+			}
+
+			aiMeta.observe(onAiMetaChange)
+			removeAiMetaListener = () => {
+				aiMeta.unobserve(onAiMetaChange)
+			}
 
 			const wsUrl = process.env.NEXT_PUBLIC_YJS_WS_URL ?? 'ws://localhost:1234'
 			const provider = new WebsocketProvider(wsUrl, transportRoomId, ydoc)
@@ -252,6 +503,11 @@ export default function Editor({
 					if (!initialSeedApplied && yText.length === 0 && initialCodeRef.current) {
 						yText.insert(0, initialCodeRef.current)
 						initialSeedApplied = true
+					}
+
+					const pulledFromMeta = syncAiRangesFromMeta()
+					if (!pulledFromMeta && initialAiRangesRef.current.length > 0) {
+						applyAiRanges(initialAiRangesRef.current)
 					}
 				}
 			}
@@ -283,10 +539,20 @@ export default function Editor({
 			disposed = true
 			removeStatusListener?.()
 			removeSyncListener?.()
+			removeAiMetaListener?.()
 			removeContentListener?.()
 			removeInlineProvider?.()
 			completionAbortRef.current?.abort()
 			completionAbortRef.current = null
+			pendingInlineCompletionRef.current = null
+			monacoRef.current = null
+			if (renderTimerRef.current) {
+				clearTimeout(renderTimerRef.current)
+				renderTimerRef.current = null
+			}
+			pendingRenderRangesRef.current = null
+			aiMetaRef.current = null
+			lastBroadcastAiRangesRef.current = ''
 			bindingRef.current?.destroy()
 			bindingRef.current = null
 			providerRef.current?.destroy()
@@ -294,13 +560,23 @@ export default function Editor({
 			ydocRef.current?.destroy()
 			ydocRef.current = null
 			try {
+				aiDecorationIdsRef.current = []
+				aiRangesRef.current = []
 				editorRef.current?.getModel()?.dispose()
 				editorRef.current?.dispose()
 			} catch {
 			}
 			editorRef.current = null
 		}
-	}, [transportRoomId, language])
+	}, [transportRoomId, language, addAiRange, applyAiRanges])
+
+	if (embedded) {
+		return (
+			<div className="h-full w-full bg-black/95">
+				<div ref={containerRef} className="h-full w-full" />
+			</div>
+		)
+	}
 
 	return (
 		<main style={{ padding: 24 }}>

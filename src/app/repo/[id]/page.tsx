@@ -31,6 +31,25 @@ type RepoFileNode = {
   children?: RepoFileNode[]
 }
 
+type AiRange = {
+  startLineNumber: number
+  startColumn: number
+  endLineNumber: number
+  endColumn: number
+}
+
+const getFullRangeForCode = (code: string): AiRange => {
+  const lines = code.split('\n')
+  const endLineNumber = Math.max(1, lines.length)
+  const lastLine = lines[endLineNumber - 1] ?? ''
+  return {
+    startLineNumber: 1,
+    startColumn: 1,
+    endLineNumber,
+    endColumn: lastLine.length + 1,
+  }
+}
+
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
 
 const getOwnerUidFromRepoPath = (path: string) => {
@@ -176,9 +195,11 @@ function FileTree({
         if (node.type === 'directory') {
           return (
             <li key={node.path}>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{node.name}</p>
+              <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide px-2 py-1 rounded bg-white/5">
+                {node.name}
+              </p>
               {node.children?.length ? (
-                <div className="ml-3 mt-1 border-l border-black/10 pl-2">
+                <div className="ml-3 mt-1 border-l border-white/10 pl-2">
                   <FileTree
                     nodes={node.children}
                     selectedFilePath={selectedFilePath}
@@ -186,7 +207,7 @@ function FileTree({
                   />
                 </div>
               ) : (
-                <p className="text-xs text-gray-400 ml-2">(empty)</p>
+                <p className="text-xs text-gray-500 ml-2">(empty)</p>
               )}
             </li>
           )
@@ -198,9 +219,10 @@ function FileTree({
             <button
               type="button"
               onClick={() => onSelectFile(node.path)}
-              className={`w-full text-left text-sm rounded px-2 py-1 ${
-                isSelected ? 'bg-black text-white' : 'hover:bg-black/5'
+              className={`w-full text-left text-sm rounded-md px-2.5 py-1.5 truncate transition-colors ${
+                isSelected ? 'bg-white/15 text-white shadow-sm' : 'hover:bg-white/10 text-gray-300'
               }`}
+              title={node.path}
             >
               {node.name}
             </button>
@@ -238,6 +260,9 @@ export default function RepoEditorPage() {
   const [fileMessage, setFileMessage] = useState<string | null>(null)
   const [editorReplaceToken, setEditorReplaceToken] = useState(0)
   const [editorReplaceContent, setEditorReplaceContent] = useState('')
+  const [editorReplaceSource, setEditorReplaceSource] = useState<'ai' | 'user'>('user')
+  const [selectedFileAiRanges, setSelectedFileAiRanges] = useState<AiRange[]>([])
+  const [editorAiRangesToken, setEditorAiRangesToken] = useState(0)
 
   useEffect(() => {
     if (!auth) {
@@ -513,11 +538,14 @@ export default function RepoEditorPage() {
             repoId
           )}&filePath=${encodeURIComponent(selectedFilePath)}`
         )
-        const data = (await response.json()) as { content?: string; error?: string }
+        const data = (await response.json()) as { content?: string; aiRanges?: AiRange[]; error?: string }
         if (!response.ok) {
           throw new Error(data.error || 'Unable to load file content')
         }
         setSelectedFileContent(data.content ?? '')
+        setSelectedFileAiRanges(data.aiRanges ?? [])
+        setEditorAiRangesToken((prev) => prev + 1)
+        setEditorReplaceSource('user')
         setFileMessage(null)
       } catch (error) {
         if (error instanceof Error) {
@@ -528,6 +556,38 @@ export default function RepoEditorPage() {
 
     void loadSelectedFile()
   }, [ownerUid, repoId, selectedFilePath])
+
+  useEffect(() => {
+    if (!ownerUid || !selectedFilePath) {
+      return
+    }
+
+    const timer = setTimeout(() => {
+      void fetch('/api/repo-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save',
+          ownerUid,
+          repoId,
+          filePath: selectedFilePath,
+          content: selectedFileContent,
+          aiRanges: selectedFileAiRanges,
+        }),
+      }).then(async (response) => {
+        if (!response.ok) {
+          const data = (await response.json()) as { error?: string }
+          throw new Error(data.error || 'Unable to auto-save AI ranges')
+        }
+      }).catch((error: unknown) => {
+        if (error instanceof Error) {
+          setErrorMessage(error.message)
+        }
+      })
+    }, 400)
+
+    return () => clearTimeout(timer)
+  }, [ownerUid, repoId, selectedFilePath, selectedFileContent, selectedFileAiRanges])
 
   const handleInviteCollaborator = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -606,6 +666,7 @@ export default function RepoEditorPage() {
           repoId,
           filePath: selectedFilePath,
           content: selectedFileContent,
+          aiRanges: selectedFileAiRanges,
         }),
       })
 
@@ -652,6 +713,8 @@ export default function RepoEditorPage() {
       }
       setFileTree(data.tree ?? [])
       setSelectedFilePath(filePath)
+      setSelectedFileAiRanges([])
+      setEditorAiRangesToken((prev) => prev + 1)
     } catch (error) {
       if (error instanceof Error) {
         setErrorMessage(error.message)
@@ -700,9 +763,12 @@ export default function RepoEditorPage() {
 
     setErrorMessage(null)
     setSelectedFileContent(code)
+    setSelectedFileAiRanges([getFullRangeForCode(code)])
+    setEditorAiRangesToken((prev) => prev + 1)
     setEditorReplaceContent(code)
+    setEditorReplaceSource('ai')
     setEditorReplaceToken((prev) => prev + 1)
-    setFileMessage('Imported code from AI chat. Save file to persist this change.')
+    setFileMessage('Imported code from AI chat.')
   }
 
   const editorLanguage = useMemo(() => getLanguageFromFilePath(selectedFilePath), [selectedFilePath])
@@ -714,10 +780,10 @@ export default function RepoEditorPage() {
   )
   if (isCheckingAccess) {
     return (
-      <main className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col bg-[#0b1220] text-gray-100">
         <Navbar />
         <section className="p-6">
-          <p className="text-sm text-gray-500">Loading repo...</p>
+          <p className="text-sm text-gray-400">Loading repo...</p>
         </section>
       </main>
     )
@@ -725,11 +791,11 @@ export default function RepoEditorPage() {
 
   if (errorMessage) {
     return (
-      <main className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col bg-[#0b1220] text-gray-100">
         <Navbar />
         <section className="p-6 max-w-3xl w-full mx-auto">
-          <p className="text-sm text-red-500 mb-4">{errorMessage}</p>
-          <Link href="/workspace" className="text-sm underline">
+          <p className="text-sm text-red-400 mb-4">{errorMessage}</p>
+          <Link href="/workspace" className="text-sm underline text-gray-200">
             Back to repos
           </Link>
         </section>
@@ -738,33 +804,45 @@ export default function RepoEditorPage() {
   }
 
   return (
-    <main className="flex-1 flex flex-col">
+    <main className="flex-1 flex flex-col bg-[#0b1220] text-gray-100">
       <Navbar />
-      <section className="px-6 pt-4 pb-4">
-        <h1 className="text-xl font-semibold">{repoName ?? 'Repo editor'}</h1>
-        <p className="text-sm text-gray-600">Repo ID: {repoId}</p>
-        <p className="text-sm text-gray-600">Access: {isOwner ? 'Owner' : 'Collaborator'}</p>
-        {!isOwner ? (
-          <p className="text-sm text-gray-600">
-            Collaborator, owned by: {getOwnerLabel(ownerName, ownerEmail)}
-          </p>
-        ) : null}
+      <section className="px-4 md:px-6 pt-4 pb-4 max-w-[1600px] w-full mx-auto">
+        <div className="border border-white/10 rounded-2xl p-4 md:p-5 bg-[#111a2c] backdrop-blur-sm shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">{repoName ?? 'Repo editor'}</h1>
+              <div className="mt-1 flex flex-wrap gap-2 items-center text-sm">
+                <span className="px-2 py-0.5 rounded-full bg-white/10 text-gray-200">Repo ID: {repoId}</span>
+                <span className="px-2 py-0.5 rounded-full bg-white/10 text-gray-200">
+                  Access: {isOwner ? 'Owner' : 'Collaborator'}
+                </span>
+                {!isOwner ? (
+                  <span className="px-2 py-0.5 rounded-full bg-white/10 text-gray-200">
+                    Owner: {getOwnerLabel(ownerName, ownerEmail)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <Link href="/workspace" className="text-sm border border-white/20 rounded-lg px-3 py-1.5 hover:bg-white/10 w-fit">
+              Back to Repos
+            </Link>
+          </div>
 
-        {isOwner ? (
-          <div className="mt-4 border border-black/10 rounded-xl p-4 max-w-2xl">
-            <h2 className="font-semibold mb-3">Invite collaborators</h2>
-            <form onSubmit={handleInviteCollaborator} className="flex gap-2 flex-wrap">
+          {isOwner ? (
+            <div className="mt-4 border border-white/10 rounded-xl p-4 bg-[#0f1729]">
+              <h2 className="font-semibold mb-3">Invite collaborators</h2>
+              <form onSubmit={handleInviteCollaborator} className="flex gap-2 flex-wrap">
               <input
                 type="email"
                 value={inviteEmail}
                 onChange={(event) => setInviteEmail(event.target.value)}
                 placeholder="collaborator@email.com"
-                className="flex-1 min-w-64 border border-black/20 rounded-md px-3 py-2"
+                className="flex-1 min-w-64 border border-white/20 rounded-lg px-3 py-2 bg-[#0b1220] text-gray-100 placeholder:text-gray-500"
               />
               <button
                 type="submit"
                 disabled={isInviting}
-                className="bg-black text-white rounded-md px-4 py-2 disabled:opacity-60"
+                className="bg-white text-black rounded-lg px-4 py-2 disabled:opacity-60"
               >
                 {isInviting ? 'Inviting...' : 'Invite'}
               </button>
@@ -776,29 +854,30 @@ export default function RepoEditorPage() {
             <div className="mt-4">
               <p className="text-sm font-medium mb-2">Invited collaborators</p>
               {invites.length === 0 ? (
-                <p className="text-sm text-gray-500">No collaborators invited yet.</p>
+                <p className="text-sm text-gray-400">No collaborators invited yet.</p>
               ) : (
-                <ul className="space-y-1">
+                <ul className="space-y-1.5">
                   {invites.map((invite) => (
-                    <li key={invite.email} className="text-sm text-gray-700">
+                    <li key={invite.email} className="text-sm text-gray-200 px-2 py-1 rounded bg-white/10">
                       {invite.email} {invite.status ? `(${invite.status})` : ''}
                     </li>
                   ))}
                 </ul>
               )}
             </div>
-          </div>
-        ) : null}
+            </div>
+          ) : null}
+        </div>
       </section>
 
-      <section className="px-6 pb-6 grid grid-cols-[280px_1fr] gap-4 flex-1 min-h-0">
-        <aside className="border border-black/10 rounded-xl p-3 overflow-auto">
+      <section className="px-4 md:px-6 pb-6 max-w-[1600px] w-full mx-auto grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 flex-1 min-h-0">
+        <aside className="border border-white/10 rounded-2xl p-3.5 overflow-auto bg-[#111a2c] shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold">Files</h2>
             <button
               type="button"
               onClick={() => void loadFileTree()}
-              className="text-xs border border-black/20 rounded px-2 py-1"
+              className="text-xs border border-white/20 rounded-md px-2 py-1 hover:bg-white/10"
             >
               Refresh
             </button>
@@ -808,23 +887,23 @@ export default function RepoEditorPage() {
             <button
               type="button"
               onClick={handleCreateFile}
-              className="text-xs border border-black/20 rounded px-2 py-1"
+              className="text-xs border border-white/20 rounded-md px-2 py-1 hover:bg-white/10"
             >
               + File
             </button>
             <button
               type="button"
               onClick={handleCreateFolder}
-              className="text-xs border border-black/20 rounded px-2 py-1"
+              className="text-xs border border-white/20 rounded-md px-2 py-1 hover:bg-white/10"
             >
               + Folder
             </button>
           </div>
 
           {isLoadingFiles ? (
-            <p className="text-sm text-gray-500">Loading files...</p>
+            <p className="text-sm text-gray-400">Loading files...</p>
           ) : fileTree.length === 0 ? (
-            <p className="text-sm text-gray-500">No files yet.</p>
+            <p className="text-sm text-gray-400">No files yet.</p>
           ) : (
             <FileTree
               nodes={fileTree}
@@ -835,17 +914,20 @@ export default function RepoEditorPage() {
         </aside>
 
         <div className="flex flex-col gap-3 min-h-0">
-          <div className="border border-black/10 rounded-xl p-3">
+          <div className="border border-white/10 rounded-2xl p-3.5 bg-[#111a2c] shadow-sm">
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-300">
                 Active file: <strong>{selectedFilePath ?? 'None selected'}</strong>
               </p>
               <div className="flex gap-2 items-center">
+                <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-gray-200">
+                  Language: {editorLanguage}
+                </span>
                 <button
                   type="button"
                   onClick={handleSaveFile}
                   disabled={!selectedFilePath || isSavingFile}
-                  className="text-sm border border-black/20 rounded px-3 py-1.5 disabled:opacity-60"
+                  className="text-sm border border-white/20 rounded-lg px-3 py-1.5 disabled:opacity-60 hover:bg-white/10"
                 >
                   {isSavingFile ? 'Saving...' : 'Save file'}
                 </button>
@@ -854,7 +936,7 @@ export default function RepoEditorPage() {
             {fileMessage ? <p className="text-xs text-green-600 mt-2">{fileMessage}</p> : null}
           </div>
 
-          <div className="min-h-0 flex-1 border border-black/10 rounded-xl overflow-hidden">
+          <div className="h-[52vh] min-h-[420px] lg:h-[60vh] border border-white/10 rounded-2xl overflow-hidden bg-[#0f1729] shadow-sm">
             {selectedFilePath ? (
               <Editor
                 key={effectiveEditorRoom}
@@ -864,9 +946,14 @@ export default function RepoEditorPage() {
                 onCodeChange={setSelectedFileContent}
                 replaceContentToken={editorReplaceToken}
                 replaceContentValue={editorReplaceContent}
+                replaceContentSource={editorReplaceSource}
+                initialAiRanges={selectedFileAiRanges}
+                aiRangesToken={editorAiRangesToken}
+                onAiRangesChange={(ranges) => setSelectedFileAiRanges(ranges)}
+                embedded
               />
             ) : (
-              <div className="h-full grid place-items-center text-sm text-gray-500">
+              <div className="h-full grid place-items-center text-sm text-gray-400">
                 Select a file from the sidebar.
               </div>
             )}

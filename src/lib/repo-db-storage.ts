@@ -1,14 +1,5 @@
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  serverTimestamp,
-  setDoc,
-  writeBatch,
-} from 'firebase/firestore'
-import { getServerFirestore } from '@/lib/server-firestore'
+import { get, ref, remove, set, update } from 'firebase/database'
+import { getServerRealtimeDb } from '@/lib/server-realtime-db'
 
 export type RepoFileNode = {
   name: string
@@ -17,10 +8,51 @@ export type RepoFileNode = {
   children?: RepoFileNode[]
 }
 
+export type RepoAiRange = {
+  startLineNumber: number
+  startColumn: number
+  endLineNumber: number
+  endColumn: number
+}
+
 type RepoEntry = {
   path: string
   type: 'file' | 'directory'
   content?: string
+  aiRanges?: RepoAiRange[]
+}
+
+const normalizeAiRanges = (value: unknown): RepoAiRange[] => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((entry) => {
+      const range = entry as {
+        startLineNumber?: unknown
+        startColumn?: unknown
+        endLineNumber?: unknown
+        endColumn?: unknown
+      }
+      const start = Number(range.startLineNumber)
+      const startCol = Number(range.startColumn)
+      const end = Number(range.endLineNumber)
+      const endCol = Number(range.endColumn)
+      if (!Number.isFinite(start) || !Number.isFinite(startCol) || !Number.isFinite(end) || !Number.isFinite(endCol)) {
+        return null
+      }
+
+      const startLineNumber = Math.max(1, Math.floor(start))
+      const startColumn = Math.max(1, Math.floor(startCol))
+      const endLineNumber = Math.max(startLineNumber, Math.floor(end))
+      const endColumn =
+        endLineNumber === startLineNumber
+          ? Math.max(startColumn, Math.floor(endCol))
+          : Math.max(1, Math.floor(endCol))
+      return { startLineNumber, startColumn, endLineNumber, endColumn }
+    })
+    .filter((range): range is RepoAiRange => Boolean(range))
 }
 
 const normalizeRelativePath = (relativePath: string) => {
@@ -41,26 +73,45 @@ const normalizeRelativePath = (relativePath: string) => {
   return normalized
 }
 
-const filesCollection = (ownerUid: string, repoId: string) => {
-  const db = getServerFirestore()
-  return collection(db, 'users', ownerUid, 'repos', repoId, 'files')
+const toEntryKey = (relativePath: string) => {
+  const normalized = normalizeRelativePath(relativePath)
+  if (!normalized) {
+    throw new Error('Invalid file path')
+  }
+  return Buffer.from(normalized, 'utf8').toString('base64url')
 }
 
-const fileDoc = (ownerUid: string, repoId: string, relativePath: string) => {
+const filesRootPath = (ownerUid: string, repoId: string) =>
+  `users/${ownerUid}/repos/${repoId}/files`
+
+const filesRootRef = (ownerUid: string, repoId: string) => {
+  const db = getServerRealtimeDb()
+  return ref(db, filesRootPath(ownerUid, repoId))
+}
+
+const fileRef = (ownerUid: string, repoId: string, relativePath: string) => {
   const normalized = normalizeRelativePath(relativePath)
   if (!normalized) {
     throw new Error('Invalid file path')
   }
 
-  const docId = encodeURIComponent(normalized)
-  return doc(filesCollection(ownerUid, repoId), docId)
+  const entryId = toEntryKey(normalized)
+  const db = getServerRealtimeDb()
+  return ref(db, `${filesRootPath(ownerUid, repoId)}/${entryId}`)
 }
 
 export const listRepoEntries = async (ownerUid: string, repoId: string): Promise<RepoEntry[]> => {
-  const snapshot = await getDocs(filesCollection(ownerUid, repoId))
-  return snapshot.docs
-    .map((entryDoc) => {
-      const data = entryDoc.data() as { path?: string; type?: 'file' | 'directory'; content?: string }
+  const snapshot = await get(filesRootRef(ownerUid, repoId))
+  if (!snapshot.exists()) {
+    return []
+  }
+
+  const entries = snapshot.val() as Record<
+    string,
+    { path?: string; type?: 'file' | 'directory'; content?: string; aiRanges?: unknown }
+  >
+  return Object.values(entries)
+    .map((data): RepoEntry | null => {
       if (!data.path || (data.type !== 'file' && data.type !== 'directory')) {
         return null
       }
@@ -68,63 +119,61 @@ export const listRepoEntries = async (ownerUid: string, repoId: string): Promise
         path: normalizeRelativePath(data.path),
         type: data.type,
         content: data.content,
+        aiRanges: normalizeAiRanges(data.aiRanges),
       }
     })
     .filter((entry): entry is RepoEntry => Boolean(entry))
 }
 
-export const getRepoFileContent = async (ownerUid: string, repoId: string, filePath: string) => {
-  const fileRef = fileDoc(ownerUid, repoId, filePath)
-  const snapshot = await getDoc(fileRef)
+export const getRepoFileData = async (ownerUid: string, repoId: string, filePath: string) => {
+  const targetFileRef = fileRef(ownerUid, repoId, filePath)
+  const snapshot = await get(targetFileRef)
   if (!snapshot.exists()) {
     throw new Error(`File not found: ${filePath}`)
   }
 
-  const data = snapshot.data() as { type?: 'file' | 'directory'; content?: string }
+  const data = snapshot.val() as { type?: 'file' | 'directory'; content?: string; aiRanges?: unknown }
   if (data.type !== 'file') {
     throw new Error('Path is not a file')
   }
 
-  return data.content ?? ''
+  return {
+    content: data.content ?? '',
+    aiRanges: normalizeAiRanges(data.aiRanges),
+  }
 }
 
 export const upsertRepoFile = async (
   ownerUid: string,
   repoId: string,
   filePath: string,
-  content: string
+  content: string,
+  aiRanges: RepoAiRange[] = []
 ) => {
   const normalizedPath = normalizeRelativePath(filePath)
-  const fileRef = fileDoc(ownerUid, repoId, normalizedPath)
-  await setDoc(
-    fileRef,
-    {
+  const targetFileRef = fileRef(ownerUid, repoId, normalizedPath)
+  await set(targetFileRef, {
       path: normalizedPath,
       type: 'file',
       content,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  )
+      aiRanges: normalizeAiRanges(aiRanges),
+      updatedAt: Date.now(),
+    })
 }
 
 export const upsertRepoFolder = async (ownerUid: string, repoId: string, folderPath: string) => {
   const normalizedPath = normalizeRelativePath(folderPath)
-  const folderRef = fileDoc(ownerUid, repoId, normalizedPath)
-  await setDoc(
-    folderRef,
-    {
+  const targetFolderRef = fileRef(ownerUid, repoId, normalizedPath)
+  await set(targetFolderRef, {
       path: normalizedPath,
       type: 'directory',
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  )
+      updatedAt: Date.now(),
+    })
 }
 
 export const deleteRepoFile = async (ownerUid: string, repoId: string, filePath: string) => {
-  const fileRef = fileDoc(ownerUid, repoId, filePath)
-  await deleteDoc(fileRef)
+  const targetFileRef = fileRef(ownerUid, repoId, filePath)
+  await remove(targetFileRef)
 }
 
 export const deleteRepoFolder = async (ownerUid: string, repoId: string, folderPath: string) => {
@@ -138,12 +187,12 @@ export const deleteRepoFolder = async (ownerUid: string, repoId: string, folderP
     return
   }
 
-  const db = getServerFirestore()
-  const batch = writeBatch(db)
+  const patch: Record<string, null> = {}
   for (const entry of toDelete) {
-    batch.delete(fileDoc(ownerUid, repoId, entry.path))
+    patch[toEntryKey(entry.path)] = null
   }
-  await batch.commit()
+
+  await update(filesRootRef(ownerUid, repoId), patch)
 }
 
 export const ensureRepoInitialized = async (ownerUid: string, repoId: string) => {

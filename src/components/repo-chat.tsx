@@ -83,27 +83,27 @@ export default function RepoChat({ language, filePath, codeContext, onImportCode
   }
 
   return (
-    <section className="border border-black/10 rounded-xl p-3 flex flex-col min-h-65 max-h-90">
+    <section className="border border-white/10 rounded-xl p-3 flex flex-col min-h-65 max-h-90 bg-[#111a2c] text-gray-100">
       <div className="flex items-center justify-between mb-2">
         <h3 className="font-semibold">AI Chat</h3>
-        <p className="text-xs text-gray-500">{filePath ? `File: ${filePath}` : 'Select a file to import code'}</p>
+        <p className="text-xs text-gray-400">{filePath ? `File: ${filePath}` : 'Select a file to import code'}</p>
       </div>
 
-      <div className="flex-1 overflow-auto border border-black/10 rounded p-2 bg-white/60">
+      <div className="flex-1 overflow-auto border border-white/10 rounded p-2 bg-[#0b1220]">
         {messages.length === 0 ? (
-          <p className="text-sm text-gray-500">Ask for refactors, bug fixes, or new code snippets.</p>
+          <p className="text-sm text-gray-400">Ask for refactors, bug fixes, or new code snippets.</p>
         ) : (
           <ul className="space-y-2">
             {messages.map((message) => (
               <li key={message.id} className="text-sm">
-                <p className="font-medium mb-1">{message.role === 'user' ? 'You' : 'Assistant'}</p>
-                <p className="whitespace-pre-wrap text-gray-800">{message.content}</p>
+                <p className="font-medium mb-1 text-gray-200">{message.role === 'user' ? 'You' : 'Assistant'}</p>
+                <p className="whitespace-pre-wrap text-gray-300">{message.content}</p>
                 {message.role === 'assistant' && message.importCode ? (
                   <button
                     type="button"
                     onClick={() => onImportCode(message.importCode ?? '')}
                     disabled={!importEnabled}
-                    className="mt-2 text-xs border border-black/20 rounded px-2 py-1 disabled:opacity-60"
+                    className="mt-2 text-xs border border-white/20 rounded px-2 py-1 disabled:opacity-60 hover:bg-white/10"
                     title={importEnabled ? 'Replace current file with this code' : 'Select a file first'}
                   >
                     Import code
@@ -121,12 +121,12 @@ export default function RepoChat({ language, filePath, codeContext, onImportCode
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Ask AI about this repo..."
-          className="flex-1 border border-black/20 rounded px-3 py-2 text-sm"
+          className="flex-1 border border-white/20 rounded px-3 py-2 text-sm bg-[#0b1220] text-gray-100 placeholder:text-gray-500"
         />
         <button
           type="submit"
           disabled={isSending || !prompt.trim()}
-          className="bg-black text-white rounded px-3 py-2 text-sm disabled:opacity-60"
+          className="bg-white text-black rounded px-3 py-2 text-sm disabled:opacity-60"
         >
           {isSending ? 'Sending...' : 'Send'}
         </button>
