@@ -346,8 +346,6 @@ function FileTree({
           return (
             <li key={node.path}>
               <div
-                draggable
-                onDragStart={(event) => handleDragStart(event, node.path, 'directory')}
                 data-repo-drop-target="folder"
                 data-repo-path={node.path}
                 onDragOver={(e) => {
@@ -361,6 +359,8 @@ function FileTree({
               >
                 <button
                   type="button"
+                  draggable
+                  onDragStart={(event) => handleDragStart(event, node.path, 'directory')}
                   onDragOver={(event) => {
                     event.preventDefault()
                     event.stopPropagation()

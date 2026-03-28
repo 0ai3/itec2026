@@ -377,20 +377,31 @@ export const moveRepoEntry = async (
     throw new Error('Folder subtree not found')
   }
 
-  const patch: Record<string, null | { path: string; type: 'file' | 'directory'; content?: string; aiRanges?: RepoAiRange[]; updatedAt: number }> = {}
+  const patch: Record<string, null | { path: string; type: 'file' | 'directory'; updatedAt: number; content?: string; aiRanges?: RepoAiRange[] }> = {}
   const fileMoves: Array<{ from: string; to: string }> = []
 
   for (const entry of subtree) {
     const suffix = entry.path.slice(fromPath.length)
     const nextPath = `${toPath}${suffix}`
 
-    patch[toEntryKey(nextPath)] = {
+    const nextValue: {
+      path: string
+      type: 'file' | 'directory'
+      updatedAt: number
+      content?: string
+      aiRanges?: RepoAiRange[]
+    } = {
       path: nextPath,
       type: entry.type,
-      content: entry.type === 'file' ? entry.content ?? '' : undefined,
-      aiRanges: entry.type === 'file' ? normalizeAiRanges(entry.aiRanges) : undefined,
       updatedAt: Date.now(),
     }
+
+    if (entry.type === 'file') {
+      nextValue.content = entry.content ?? ''
+      nextValue.aiRanges = normalizeAiRanges(entry.aiRanges)
+    }
+
+    patch[toEntryKey(nextPath)] = nextValue
 
     patch[toEntryKey(entry.path)] = null
 
@@ -534,7 +545,7 @@ export const buildRepoTreeFromEntries = (entries: RepoEntry[]): RepoFileNode[] =
   const sortNodes = (nodes: RepoFileNode[]) => {
     nodes.sort((a, b) => {
       if (a.type !== b.type) {
-        return a.type === 'directory' ? -1 : 1
+        return a.type === 'file' ? -1 : 1
       }
       return a.name.localeCompare(b.name)
     })
