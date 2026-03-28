@@ -38,6 +38,7 @@ const pullImageIfMissing = async (image: string) => {
         await docker.getImage(image).inspect()
         return
     } catch {
+        // Imaginea nu există, continuăm cu descărcarea
     }
 
     const pullStream = await new Promise<NodeJS.ReadableStream>((resolve, reject) => {
@@ -47,36 +48,27 @@ const pullImageIfMissing = async (image: string) => {
                 return
             }
             resolve(stream)
-    })
+        })
     })
 
     await new Promise<void>((resolve, reject) => {
         docker.modem.followProgress(
             pullStream,
-            (error) => {
-                if (error) {
-                    reject(error)
-                    return
-                }
-                resolve()
-            },
-            () => {
-            }
+            (error) => (error ? reject(error) : resolve()),
+            () => {}
         )
     })
 }
 
 const buildShellCommand = (command: string, stdin: string) => {
-    if (!stdin) {
-        return command
-    }
-
+    if (!stdin) return command
     const delimiter = '__COPILOT_STDIN__'
     return `cat <<'${delimiter}' | ${command}\n${stdin}\n${delimiter}`
 }
 
 export async function POST(req: Request) {
     let containerForCleanup: Docker.Container | null = null
+    let timeoutId: NodeJS.Timeout | undefined // Adăugat pentru a preveni memory leaks
 
     try {
         const body = (await req.json()) as ExecuteBody
@@ -86,10 +78,12 @@ export async function POST(req: Request) {
         const image = body.image?.trim() || 'python:3.11-alpine'
         const stdin = typeof body.stdin === 'string' ? body.stdin : ''
 
-        await ensureDockerAvailable()
-        await pullImageIfMissing(image)
+        // Optimizare: Rulăm I/O pe disc și I/O pe rețeaua Docker în paralel
+        await Promise.all([
+            ensureDockerAvailable().then(() => pullImageIfMissing(image)),
+            ensureRepoRoot(ownerUid, repoId),
+        ])
 
-        await ensureRepoRoot(ownerUid, repoId)
         const repoRoot = getRepoRootPath(ownerUid, repoId)
 
         let outputData = ''
@@ -124,7 +118,7 @@ export async function POST(req: Request) {
         }
 
         const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => {
+            timeoutId = setTimeout(() => {
                 reject(new Error(`Timeout: execution exceeded ${TIMEOUT_MS / 1000} seconds and was stopped.`))
             }, TIMEOUT_MS)
         })
@@ -133,6 +127,9 @@ export async function POST(req: Request) {
             StatusCode?: number
         }
 
+        // Optimizare: Oprim timer-ul dacă execuția s-a terminat cu succes (eliberăm Event Loop-ul)
+        if (timeoutId) clearTimeout(timeoutId)
+
         const statusCode = result?.StatusCode ?? 0
 
         return NextResponse.json({
@@ -140,12 +137,16 @@ export async function POST(req: Request) {
             exitCode: statusCode,
         })
     } catch (error) {
+        // Curățăm timer-ul și în caz de eroare
+        if (timeoutId) clearTimeout(timeoutId)
+
         if (error instanceof Error && error.message.includes('Timeout') && containerForCleanup) {
             try {
-                await containerForCleanup.kill()
+                await (containerForCleanup as Docker.Container).kill()
             } catch {
+                // Ignorăm eroarea dacă a fost deja distrus
             }
-    }
+        }
 
         const message = error instanceof Error ? error.message : 'Execution failed'
         const status =
@@ -154,8 +155,9 @@ export async function POST(req: Request) {
             message.includes('Missing command')
                 ? 400
                 : message.includes('Docker is not available')
-                    ? 503
-                    : 500
+                  ? 503
+                  : 500
+                  
         return NextResponse.json({ error: message, output: message }, { status })
     }
 }

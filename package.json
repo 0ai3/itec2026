@@ -15,6 +15,7 @@
     "docker": "^1.0.0",
     "dockerode": "^4.0.10",
     "firebase": "^12.11.0",
+    "lucide-react": "^1.7.0",
     "monaco-editor": "^0.55.1",
     "next": "16.2.1",
     "react": "19.2.4",
