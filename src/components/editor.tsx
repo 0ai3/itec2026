@@ -27,6 +27,7 @@ declare global {
 
 type EditorProps = {
     roomId?: string
+    filePath?: string | null
     language?: string
     initialCode?: string
     onCodeChange?: (code: string) => void
@@ -58,6 +59,7 @@ const setYTextValue = (yText: import('yjs').Text, value: string) => {
 
 export default function Editor({
     roomId = 'monaco-room',
+    filePath = null,
     language = 'typescript',
     initialCode = '',
     onCodeChange,
@@ -94,6 +96,7 @@ export default function Editor({
     const bindingRef = useRef<import('y-monaco').MonacoBinding | null>(null)
 
     const [connectionStatus, setConnectionStatus] = useState('connecting')
+    const [isEditorEmpty, setIsEditorEmpty] = useState(initialCode.length === 0)
 
     // Selection popup (Pentru Fix Code)
     const [selectionPopup, setSelectionPopup] = useState<{
@@ -293,7 +296,7 @@ export default function Editor({
             const response = await fetch('/api/ai-complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ language, mode: 'fix', code: selectedText }),
+                body: JSON.stringify({ language, filePath, mode: 'fix', code: selectedText }),
             })
             if (!response.ok) return
 
@@ -329,8 +332,8 @@ export default function Editor({
         setPopupLoading(true)
 
         const body = action === 'fix'
-            ? { language, mode: 'fix', code: popup.selectedText }
-            : { language, mode: 'fix', code: `${prompt}\n\n${popup.selectedText}` }
+            ? { language, filePath, mode: 'fix', code: popup.selectedText }
+            : { language, filePath, mode: 'fix', code: `${prompt}\n\n${popup.selectedText}` }
 
         try {
             const res = await fetch('/api/ai-complete', {
@@ -384,6 +387,7 @@ export default function Editor({
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     language, 
+                    filePath,
                     prompt: prompt,
                     currentCode: model.getValue()
                 }),
@@ -536,6 +540,7 @@ export default function Editor({
 
         const nextValue = replaceContentValueRef.current ?? ''
         model.setValue(nextValue)
+        setIsEditorEmpty(nextValue.length === 0)
 
         const yText = ydocRef.current?.getText('monaco')
         if (yText && yText.toString() !== nextValue) {
@@ -644,7 +649,7 @@ export default function Editor({
                         const response = await fetch('/api/ai-complete', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ language, prefix, suffix }),
+                            body: JSON.stringify({ language, filePath, prefix, suffix }),
                             signal: abortController.signal,
                         })
                         if (!response.ok) return { items: [] }
@@ -804,6 +809,7 @@ export default function Editor({
                     pendingInlineCompletionRef.current = null
                 }
                 onCodeChangeRef.current?.(editorRef.current?.getValue() ?? '')
+                setIsEditorEmpty((editorRef.current?.getValue() ?? '').length === 0)
             })
             removeContentListener = () => contentDisposable.dispose()
 
@@ -870,6 +876,7 @@ export default function Editor({
                 if (model.getValue().length > 0) return
                 if (!initialCodeRef.current) return
                 model.setValue(initialCodeRef.current)
+                setIsEditorEmpty(initialCodeRef.current.length === 0)
                 onCodeChangeRef.current?.(initialCodeRef.current)
             }, 1200)
 
@@ -1146,6 +1153,21 @@ export default function Editor({
         return (
             <div className="h-full w-full bg-black/95 relative">
                 <div ref={containerRef} className="h-full w-full" />
+                {isEditorEmpty && !generatePopup && !selectionPopup && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            top: 12,
+                            left: 14,
+                            color: '#6e7681',
+                            fontSize: 12,
+                            pointerEvents: 'none',
+                            userSelect: 'none',
+                        }}
+                    >
+                        Press <strong>Cmd+K</strong> / <strong>Ctrl+K</strong> to open inline suggestions
+                    </div>
+                )}
                 {selectionPopupJsx}
                 {generatePopupJsx}
                 {blockToolbarJsx}
@@ -1173,6 +1195,21 @@ export default function Editor({
                 ref={containerRef}
                 style={{ height: '55vh', width: '100%', border: '1px solid #333', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}
             />
+            {isEditorEmpty && !generatePopup && !selectionPopup && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        top: 132,
+                        left: 38,
+                        color: '#6e7681',
+                        fontSize: 12,
+                        pointerEvents: 'none',
+                        userSelect: 'none',
+                    }}
+                >
+                    Press <strong>Cmd+K</strong> / <strong>Ctrl+K</strong> to open inline suggestions
+                </div>
+            )}
             {selectionPopupJsx}
             {generatePopupJsx}
             {blockToolbarJsx}

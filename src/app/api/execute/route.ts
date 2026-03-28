@@ -78,6 +78,10 @@ const withRuntimePath = (image: string, command: string) => {
         return `export PATH=/usr/local/cargo/bin:$PATH; ${command}`
     }
 
+    if (lower.startsWith('golang:') || lower.includes('/golang:')) {
+        return `export PATH=/usr/local/go/bin:$PATH; ${command}`
+    }
+
     return command
 }
 
@@ -186,7 +190,8 @@ export async function POST(req: Request) {
         })
 
         const wrappedCommand = withRuntimePath(image, buildShellCommand(command, stdin))
-        const TIMEOUT_MS = 30_000
+        const needsExtendedTimeout = /\b(apt-get|apk\s+add)\b/i.test(command)
+        const TIMEOUT_MS = needsExtendedTimeout ? 120_000 : 30_000
 
         const runPromise = async () => {
             containerForCleanup = await docker.createContainer({

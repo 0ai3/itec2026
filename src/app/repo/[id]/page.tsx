@@ -193,72 +193,104 @@ const getOwnerLabel = (
 
 const getLanguageFromFilePath = (filePath: string | null) => {
   if (!filePath) return "typescript";
-  if (filePath.endsWith(".ts") || filePath.endsWith(".tsx"))
+  const lowerPath = filePath.toLowerCase();
+  if (lowerPath.endsWith(".ts") || lowerPath.endsWith(".tsx"))
     return "typescript";
-  if (filePath.endsWith(".js") || filePath.endsWith(".jsx"))
+  if (lowerPath.endsWith(".js") || lowerPath.endsWith(".jsx"))
     return "javascript";
-  if (filePath.endsWith(".json")) return "json";
-  if (filePath.endsWith(".css")) return "css";
-  if (filePath.endsWith(".html")) return "html";
-  if (filePath.endsWith(".py")) return "python";
-  if (filePath.endsWith(".md")) return "markdown";
-  if (filePath.endsWith(".cpp")) return "cpp";
-  if (filePath.endsWith(".c")) return "c";
-  if (filePath.endsWith(".java")) return "java";
-  if (filePath.endsWith(".rs")) return "rust";
+  if (lowerPath.endsWith(".json")) return "json";
+  if (lowerPath.endsWith(".css")) return "css";
+  if (lowerPath.endsWith(".html")) return "html";
+  if (lowerPath.endsWith(".py")) return "python";
+  if (lowerPath.endsWith(".md")) return "markdown";
+  if (lowerPath.endsWith(".cpp")) return "cpp";
+  if (lowerPath.endsWith(".c")) return "c";
+  if (lowerPath.endsWith(".java")) return "java";
+  if (lowerPath.endsWith(".rs")) return "rust";
+  if (lowerPath.endsWith(".go")) return "go";
+  if (lowerPath.endsWith(".php")) return "php";
+  if (lowerPath.endsWith(".rb")) return "ruby";
+  if (lowerPath.endsWith(".r")) return "r";
+  if (lowerPath.endsWith(".lua")) return "lua";
   return "plaintext";
 };
 
 const getRuntimeConfigForFilePath = (filePath: string | null) => {
   if (!filePath)
     return { image: "python:3.11-alpine", command: "python main.py" };
-  if (filePath.endsWith(".py"))
+  const lowerPath = filePath.toLowerCase();
+  if (lowerPath.endsWith(".py"))
     return {
       image: "python:3.11-alpine",
       command: `python ${JSON.stringify(filePath)}`,
     };
   if (
-    filePath.endsWith(".js") ||
-    filePath.endsWith(".mjs") ||
-    filePath.endsWith(".cjs")
+    lowerPath.endsWith(".js") ||
+    lowerPath.endsWith(".mjs") ||
+    lowerPath.endsWith(".cjs")
   )
     return {
       image: "node:20-alpine",
       command: `node ${JSON.stringify(filePath)}`,
     };
-  if (filePath.endsWith(".ts"))
+  if (lowerPath.endsWith(".ts"))
     return {
       image: "denoland/deno:alpine",
       command: `deno run --allow-read ${JSON.stringify(filePath)}`,
     };
-  if (filePath.endsWith(".tsx") || filePath.endsWith(".jsx"))
+  if (lowerPath.endsWith(".tsx") || lowerPath.endsWith(".jsx"))
     return {
       image: "node:20-alpine",
       command: `echo ${JSON.stringify("JSX/TSX files require a project build step.")}`,
     };
   if (
-    filePath.endsWith(".cpp") ||
-    filePath.endsWith(".cc") ||
-    filePath.endsWith(".cxx")
+    lowerPath.endsWith(".cpp") ||
+    lowerPath.endsWith(".cc") ||
+    lowerPath.endsWith(".cxx")
   )
     return {
       image: "gcc:latest",
       command: `g++ ${JSON.stringify(filePath)} -o out_bin && ./out_bin`,
     };
-  if (filePath.endsWith(".c"))
+  if (lowerPath.endsWith(".c"))
     return {
       image: "gcc:latest",
       command: `gcc ${JSON.stringify(filePath)} -o out_bin && ./out_bin`,
     };
-  if (filePath.endsWith(".java"))
+  if (lowerPath.endsWith(".java"))
     return {
       image: "openjdk:21-jdk",
       command: `java ${JSON.stringify(filePath)}`,
     };
-  if (filePath.endsWith(".rs"))
+  if (lowerPath.endsWith(".rs"))
     return {
       image: "rust:latest",
       command: `rustc ${JSON.stringify(filePath)} -O -o out_bin && ./out_bin`,
+    };
+  if (lowerPath.endsWith(".go"))
+    return {
+      image: "golang:1.22",
+      command: `go run ${JSON.stringify(filePath)}`,
+    };
+  if (lowerPath.endsWith(".php"))
+    return {
+      image: "php:8.3-cli-alpine",
+      command: `php ${JSON.stringify(filePath)}`,
+    };
+  if (lowerPath.endsWith(".rb"))
+    return {
+      image: "ruby:3.3-alpine",
+      command: `ruby ${JSON.stringify(filePath)}`,
+    };
+  if (lowerPath.endsWith(".r"))
+    return {
+      image: "r-base:4.4.1",
+      command: `Rscript ${JSON.stringify(filePath)}`,
+    };
+  if (lowerPath.endsWith(".lua"))
+    return {
+      image: "alpine:3.20",
+      command: `apk add --no-cache lua5.4 >/dev/null && lua5.4 ${JSON.stringify(filePath)}`,
     };
   return { image: "alpine:3.20", command: `cat ${JSON.stringify(filePath)}` };
 };
@@ -317,6 +349,11 @@ const FILE_ICONS: Record<string, { icon: string; color: string }> = {
   c: { icon: "C", color: "#555555" },
   java: { icon: "JV", color: "#b07219" },
   rs: { icon: "RS", color: "#dea584" },
+  go: { icon: "GO", color: "#00ADD8" },
+  php: { icon: "PH", color: "#777BB4" },
+  rb: { icon: "RB", color: "#cc342d" },
+  r: { icon: "R", color: "#276DC3" },
+  lua: { icon: "LU", color: "#2C2D72" },
 };
 
 function FileIcon({ name }: { name: string }) {

@@ -4,10 +4,33 @@ export const runtime = 'nodejs'
 
 type CompletionRequestBody = {
 	language?: string
+	filePath?: string
 	prefix?: string
 	suffix?: string
 	mode?: 'completion' | 'fix'
 	code?: string
+}
+
+const getLanguageFromFilePath = (filePath?: string) => {
+	if (!filePath) return ''
+	const lowerPath = filePath.trim().toLowerCase()
+	if (lowerPath.endsWith('.ts') || lowerPath.endsWith('.tsx')) return 'typescript'
+	if (lowerPath.endsWith('.js') || lowerPath.endsWith('.jsx')) return 'javascript'
+	if (lowerPath.endsWith('.json')) return 'json'
+	if (lowerPath.endsWith('.css')) return 'css'
+	if (lowerPath.endsWith('.html')) return 'html'
+	if (lowerPath.endsWith('.py')) return 'python'
+	if (lowerPath.endsWith('.md')) return 'markdown'
+	if (lowerPath.endsWith('.cpp') || lowerPath.endsWith('.cc') || lowerPath.endsWith('.cxx')) return 'cpp'
+	if (lowerPath.endsWith('.c')) return 'c'
+	if (lowerPath.endsWith('.java')) return 'java'
+	if (lowerPath.endsWith('.rs')) return 'rust'
+	if (lowerPath.endsWith('.go')) return 'go'
+	if (lowerPath.endsWith('.php')) return 'php'
+	if (lowerPath.endsWith('.rb')) return 'ruby'
+	if (lowerPath.endsWith('.r')) return 'r'
+	if (lowerPath.endsWith('.lua')) return 'lua'
+	return ''
 }
 
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
@@ -33,7 +56,8 @@ const getRequiredGroqKey = () => {
 export async function POST(req: Request) {
 	try {
 		const body = (await req.json()) as CompletionRequestBody
-		const language = body.language?.trim() || 'plaintext'
+		const languageFromPath = getLanguageFromFilePath(body.filePath)
+		const language = languageFromPath || body.language?.trim() || 'plaintext'
 		const mode = body.mode ?? 'completion'
 		const apiKey = getRequiredGroqKey()
 
