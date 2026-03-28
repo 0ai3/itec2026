@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   type FormEvent,
   type InputHTMLAttributes,
@@ -11,7 +12,12 @@ import {
   useState,
 } from "react";
 import { collection, getDocs } from "firebase/firestore";
-import { onAuthStateChanged, updateProfile, type User } from "firebase/auth";
+import {
+  onAuthStateChanged,
+  signOut,
+  updateProfile,
+  type User,
+} from "firebase/auth";
 import Navbar from "@/components/Navbar";
 import { auth, db } from "@/lib/firebase";
 
@@ -24,7 +30,37 @@ type ParticipatingRepo = {
   ownerPhotoURL?: string;
 };
 
+type PetSkin = "blob" | "bot" | "fox";
+type PetMood = "sad" | "neutral" | "angry" | "happy";
+
+const PET_ENABLED_KEY = "pet.enabled";
+const PET_SKIN_KEY = "pet.skin";
+const PET_MOOD_KEY = "pet.mood";
+
+const PET_SKINS: { id: PetSkin; name: string; description: string }[] = [
+  { id: "blob", name: "Nova Blob", description: "Round, playful, soft motion" },
+  { id: "bot", name: "Pixel Bot", description: "Techy, compact, robotic vibe" },
+  {
+    id: "fox",
+    name: "Tiny Fox",
+    description: "Cute ears, agile explorer look",
+  },
+];
+
+const PET_MOODS: {
+  id: PetMood;
+  name: string;
+  description: string;
+  color: string;
+}[] = [
+  { id: "sad", name: "Trist", description: "mov", color: "#8b6cd9" },
+  { id: "neutral", name: "Neutru", description: "albastru", color: "#58a6ff" },
+  { id: "angry", name: "Furios", description: "rosu", color: "#f85149" },
+  { id: "happy", name: "Vesel", description: "galben", color: "#e3b341" },
+];
+
 export default function ProfilePage() {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
 
   const [displayName, setDisplayName] = useState(
@@ -47,6 +83,24 @@ export default function ProfilePage() {
   const [repoSort, setRepoSort] = useState<"name" | "owner">("name");
   const [copiedRepoId, setCopiedRepoId] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [petSettingsReady, setPetSettingsReady] = useState(false);
+  const [petEnabled, setPetEnabled] = useState(true);
+  const [petSkin, setPetSkin] = useState<PetSkin>("blob");
+  const [petMood, setPetMood] = useState<PetMood>("neutral");
+
+  useEffect(() => {
+    const rawEnabled = window.localStorage.getItem(PET_ENABLED_KEY);
+    const rawSkin = window.localStorage.getItem(PET_SKIN_KEY);
+    const rawMood = window.localStorage.getItem(PET_MOOD_KEY);
+    setPetEnabled(rawEnabled !== "false");
+    setPetSkin(rawSkin === "bot" || rawSkin === "fox" ? rawSkin : "blob");
+    setPetMood(
+      rawMood === "sad" || rawMood === "angry" || rawMood === "happy"
+        ? rawMood
+        : "neutral",
+    );
+    setPetSettingsReady(true);
+  }, []);
 
   useEffect(() => {
     if (!auth) return;
@@ -207,6 +261,43 @@ export default function ProfilePage() {
   };
 
   const recentRepos = useMemo(() => visibleRepos.slice(0, 5), [visibleRepos]);
+
+  const emitPetSettingsChanged = () => {
+    window.dispatchEvent(new CustomEvent("pet-settings-changed"));
+  };
+
+  const handlePetEnabledChange = (next: boolean) => {
+    setPetEnabled(next);
+    window.localStorage.setItem(PET_ENABLED_KEY, String(next));
+    emitPetSettingsChanged();
+  };
+
+  const handlePetSkinChange = (next: PetSkin) => {
+    setPetSkin(next);
+    window.localStorage.setItem(PET_SKIN_KEY, next);
+    emitPetSettingsChanged();
+  };
+
+  const handlePetMoodChange = (next: PetMood) => {
+    setPetMood(next);
+    window.localStorage.setItem(PET_MOOD_KEY, next);
+    emitPetSettingsChanged();
+  };
+
+  const handleSignOut = async () => {
+    if (!auth) {
+      setErrorMessage("Auth is not configured");
+      return;
+    }
+
+    setErrorMessage(null);
+    try {
+      await signOut(auth);
+      router.replace("/login");
+    } catch {
+      setErrorMessage("Could not sign out. Try again.");
+    }
+  };
 
   return (
     <main
@@ -657,6 +748,7 @@ export default function ProfilePage() {
                   minHeight: 200,
                   display: "flex",
                   flexDirection: "column",
+                  justifyContent: "space-between",
                 }}
               >
                 <div
@@ -704,6 +796,174 @@ export default function ProfilePage() {
                     ))}
                   </div>
                 )}
+
+                <div
+                  style={{
+                    marginTop: 12,
+                    paddingTop: 10,
+                    borderTop: "1px solid #30363d",
+                    display: "grid",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: "#8b949e" }}>
+                    Session
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleSignOut()}
+                    style={{
+                      padding: "7px 10px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(248,81,73,.45)",
+                      background: "rgba(248,81,73,.14)",
+                      color: "#f85149",
+                      fontSize: 12,
+                      cursor: "pointer",
+                      justifySelf: "start",
+                    }}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid #30363d",
+                  borderRadius: 8,
+                  background: "#161b22",
+                  padding: 12,
+                  minHeight: 200,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontSize: 12, color: "#8b949e" }}>
+                  Pet companion
+                </div>
+
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 12,
+                    color: "#c9d1d9",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={petEnabled}
+                    disabled={!petSettingsReady}
+                    onChange={(event) =>
+                      handlePetEnabledChange(event.target.checked)
+                    }
+                  />
+                  Enable pet globally
+                </label>
+
+                <div style={{ display: "grid", gap: 8, marginTop: 4 }}>
+                  {PET_SKINS.map((skin) => {
+                    const selected = skin.id === petSkin;
+                    return (
+                      <button
+                        key={skin.id}
+                        type="button"
+                        onClick={() => handlePetSkinChange(skin.id)}
+                        disabled={!petSettingsReady}
+                        style={{
+                          border: selected
+                            ? "1px solid #58a6ff"
+                            : "1px solid #30363d",
+                          background: selected ? "#0f223a" : "#0d1117",
+                          borderRadius: 8,
+                          padding: "8px 9px",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          color: "#e6edf3",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 9,
+                        }}
+                      >
+                        <PetPreview skin={skin.id} mood={petMood} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700 }}>
+                            {skin.name}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 10,
+                              color: "#8b949e",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {skin.description}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 4,
+                    borderTop: "1px solid #30363d",
+                    paddingTop: 10,
+                    display: "grid",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: "#8b949e" }}>Pet mood</div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {PET_MOODS.map((mood) => {
+                      const selected = mood.id === petMood;
+                      return (
+                        <button
+                          key={mood.id}
+                          type="button"
+                          disabled={!petSettingsReady}
+                          onClick={() => handlePetMoodChange(mood.id)}
+                          style={{
+                            border: selected
+                              ? `1px solid ${mood.color}`
+                              : "1px solid #30363d",
+                            background: selected ? "#0f223a" : "#0d1117",
+                            borderRadius: 8,
+                            padding: "7px 9px",
+                            color: "#e6edf3",
+                            fontSize: 12,
+                            cursor: "pointer",
+                            textAlign: "left",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 8,
+                          }}
+                        >
+                          <span>
+                            {mood.name} · {mood.description}
+                          </span>
+                          <span
+                            style={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: "50%",
+                              background: mood.color,
+                              boxShadow: `0 0 0 3px ${selected ? "rgba(255,255,255,.1)" : "transparent"}`,
+                              flexShrink: 0,
+                            }}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -830,6 +1090,89 @@ function RepoStatPill({ label, value }: { label: string; value: number }) {
       <span style={{ fontSize: 11, color: "#e6edf3", fontWeight: 700 }}>
         {value}
       </span>
+    </div>
+  );
+}
+
+function PetPreview({ skin, mood }: { skin: PetSkin; mood: PetMood }) {
+  const moodColors: Record<
+    PetMood,
+    { light: string; base: string; dark: string }
+  > = {
+    sad: { light: "#b7a6ff", base: "#8b6cd9", dark: "#6447ad" },
+    neutral: { light: "#9fd2ff", base: "#58a6ff", dark: "#2f81f7" },
+    angry: { light: "#ff9b9b", base: "#f85149", dark: "#c93c37" },
+    happy: { light: "#ffe89a", base: "#e3b341", dark: "#bf8e2f" },
+  };
+  const c = moodColors[mood];
+
+  return (
+    <div
+      style={{
+        width: 26,
+        height: 26,
+        borderRadius: skin === "bot" ? 6 : "50%",
+        background:
+          skin === "blob"
+            ? `radial-gradient(circle at 35% 30%, ${c.light} 0%, ${c.base} 55%, ${c.dark} 100%)`
+            : skin === "bot"
+              ? `linear-gradient(145deg, ${c.light} 0%, ${c.base} 50%, ${c.dark} 100%)`
+              : `radial-gradient(circle at 40% 30%, ${c.light} 0%, ${c.base} 50%, ${c.dark} 100%)`,
+        position: "relative",
+        boxShadow: `0 5px 12px ${mood === "angry" ? "rgba(248,81,73,.35)" : mood === "happy" ? "rgba(227,179,65,.35)" : mood === "sad" ? "rgba(139,108,217,.35)" : "rgba(88,166,255,.35)"}`,
+        flexShrink: 0,
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 8,
+          left: 6,
+          width: 3,
+          height: 3,
+          borderRadius: skin === "bot" ? 1 : "50%",
+          background: "#0d1117",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          top: 8,
+          right: 6,
+          width: 3,
+          height: 3,
+          borderRadius: skin === "bot" ? 1 : "50%",
+          background: "#0d1117",
+        }}
+      />
+      {skin === "fox" ? (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              top: -4,
+              left: 4,
+              width: 0,
+              height: 0,
+              borderLeft: "4px solid transparent",
+              borderRight: "2px solid transparent",
+              borderBottom: "6px solid #0d1117",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: -4,
+              right: 4,
+              width: 0,
+              height: 0,
+              borderRight: "4px solid transparent",
+              borderLeft: "2px solid transparent",
+              borderBottom: "6px solid #0d1117",
+            }}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

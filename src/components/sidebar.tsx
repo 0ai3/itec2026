@@ -11,7 +11,6 @@ import {
   Bug,
   Terminal,
   User,
-  Settings,
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -30,7 +29,10 @@ export default function Sidebar() {
     <aside className="fixed left-0 top-0 z-50 flex h-screen w-14 flex-col bg-[#0d1117] border-r border-[#30363d]">
       {/* TOP ICONS */}
       <div className="flex flex-col items-center pt-2">
-        <Link href="/workspace" className={`${item} ${pathname === "/workspace" ? active : ""}`}>
+        <Link
+          href="/workspace"
+          className={`${item} ${pathname === "/workspace" ? active : ""}`}
+        >
           <LayoutDashboard size={20} strokeWidth={1.6} />
           <span className={tooltip}>Dashboard</span>
         </Link>
@@ -50,7 +52,6 @@ export default function Sidebar() {
           <Puzzle size={20} strokeWidth={1.6} />
           <span className={tooltip}>Extensions</span>
         </Link>
-
       </div>
 
       {/* SPACER */}
