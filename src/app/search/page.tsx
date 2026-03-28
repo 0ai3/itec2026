@@ -110,33 +110,60 @@ export default function SearchPage() {
 
       <Navbar />
 
-      <section className="relative mx-auto max-w-6xl px-6 pb-12 pt-8">
-        <header className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-[#8b949e]">
-              Search
-            </p>
-            <h1 className="text-2xl font-semibold text-white">
-              Find repos, people, and actions
-            </h1>
-            <p className="text-sm text-[#8b949e]">
-              Use quick actions or filter your repos to jump in faster.
-            </p>
+      <section className="relative mx-auto max-w-6xl px-6 pb-14 pt-10">
+        <header className="mb-8 space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-[0.24em] text-[#7a8699]">
+                Search
+              </p>
+              <h1 className="text-3xl font-semibold text-white">
+                Command search & repo jump
+              </h1>
+              <p className="text-sm text-[#8b949e]">
+                Filter repos, scan shortcuts, and move faster without leaving
+                this screen.
+              </p>
+            </div>
+            <div className="flex w-full max-w-xl items-center gap-3 rounded-2xl border border-[#1f2a38] bg-[#0f1622] px-4 py-3 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
+              <span className="text-xs font-semibold text-[#58a6ff]">⌘K</span>
+              <input
+                value={queryText}
+                onChange={(event) => setQueryText(event.target.value)}
+                placeholder="Search repos, IDs, actions..."
+                className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[#6e7681]"
+              />
+              <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
+                Enter
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 rounded-xl border border-[#1f2a38] bg-[#0f1622] px-3 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.45)]">
-            <input
-              value={queryText}
-              onChange={(event) => setQueryText(event.target.value)}
-              placeholder="Search repos, IDs, commands..."
-              className="w-64 bg-transparent text-sm text-white outline-none placeholder:text-[#6e7681]"
-            />
-            <span className="text-[11px] text-[#8b949e]">Enter</span>
+
+          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {[
+              `Repos ${repos.length || 0}`,
+              `Matches ${filteredRepos.length}`,
+              `Status ${user ? "Signed in" : "Guest"}`,
+              "Shortcuts 4x",
+            ].map((label) => (
+              <div
+                key={label}
+                className="rounded-xl border border-[#1f2a38] bg-[#0f1622] px-4 py-3 text-sm text-white shadow-[0_12px_35px_rgba(0,0,0,0.35)]"
+              >
+                <p className="text-[11px] uppercase tracking-wide text-[#7a8699]">
+                  {label.split(" ")[0]}
+                </p>
+                <p className="text-lg font-semibold">
+                  {label.split(" ").slice(1).join(" ")}
+                </p>
+              </div>
+            ))}
           </div>
         </header>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-5 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-5 shadow-[0_18px_55px_rgba(0,0,0,0.45)]">
+            <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">
                 Quick actions
               </h2>
@@ -144,15 +171,18 @@ export default function SearchPage() {
                 Navigator
               </span>
             </div>
-            <div className="space-y-2 text-sm">
+            <div className="grid gap-2 text-sm">
               {quickActions.map((action) => (
                 <Link
                   key={action.href}
                   href={action.href}
-                  className="flex items-center justify-between rounded-lg border border-[#30363d] bg-[#0a0f16] px-3 py-2 text-white transition hover:-translate-y-px hover:border-[#58a6ff]"
+                  className="flex items-center justify-between rounded-lg border border-[#263346] bg-[#0b111b] px-4 py-3 text-white transition hover:-translate-y-px hover:border-[#58a6ff]"
                 >
-                  <span>{action.label}</span>
-                  <span className="text-[11px] text-[#8b949e]">
+                  <div className="space-y-0.5">
+                    <p className="font-semibold">{action.label}</p>
+                    <p className="text-[11px] text-[#7a8699]">Jump directly</p>
+                  </div>
+                  <span className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-[#8b949e]">
                     {action.hint}
                   </span>
                 </Link>
@@ -160,9 +190,14 @@ export default function SearchPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-5 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Your repos</h2>
+          <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-5 shadow-[0_18px_55px_rgba(0,0,0,0.45)]">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Your repos</h2>
+                <p className="text-sm text-[#8b949e]">
+                  Sorted by newest; filtered live.
+                </p>
+              </div>
               <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
                 {filteredRepos.length} match
                 {filteredRepos.length === 1 ? "" : "es"}
@@ -178,13 +213,13 @@ export default function SearchPage() {
                 No repos found. Try another term.
               </p>
             ) : (
-              <div className="space-y-3 text-sm">
+              <div className="grid gap-3 md:grid-cols-2 text-sm">
                 {filteredRepos.map((repo) => (
                   <div
                     key={repo.id}
-                    className="flex items-center justify-between rounded-lg border border-[#30363d] bg-[#0a0f16] px-4 py-3 transition hover:-translate-y-px hover:border-[#58a6ff]"
+                    className="flex h-full flex-col justify-between rounded-lg border border-[#263346] bg-[#0b111b] px-4 py-4 transition hover:-translate-y-px hover:border-[#58a6ff]"
                   >
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-white">{repo.name}</p>
                       <p className="text-[11px] text-[#8b949e]">
                         ID: {repo.id}
@@ -192,7 +227,7 @@ export default function SearchPage() {
                     </div>
                     <Link
                       href={`/repo/${repo.id}`}
-                      className="text-xs font-semibold text-[#58a6ff] hover:text-[#79c0ff]"
+                      className="mt-3 inline-flex w-fit items-center gap-2 rounded-md border border-[#263346] px-3 py-1.5 text-xs font-semibold text-[#58a6ff] transition hover:border-[#58a6ff] hover:bg-[#0f1826] hover:text-[#79c0ff]"
                     >
                       Open
                     </Link>
@@ -200,33 +235,6 @@ export default function SearchPage() {
                 ))}
               </div>
             )}
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-5 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-white">
-              Global shortcuts
-            </h2>
-            <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
-              Productivity
-            </span>
-          </div>
-          <div className="grid gap-2 md:grid-cols-2 text-sm">
-            {[
-              "⌘K Command Palette",
-              "⇧⌘P Actions",
-              "⌘B Toggle sidebar",
-              "⌘J Toggle terminal",
-            ].map((shortcut) => (
-              <div
-                key={shortcut}
-                className="flex items-center justify-between rounded-lg border border-[#30363d] bg-[#0a0f16] px-3 py-2 text-white"
-              >
-                <span>{shortcut}</span>
-                <span className="text-[11px] text-[#8b949e]">Guide</span>
-              </div>
-            ))}
           </div>
         </div>
       </section>
