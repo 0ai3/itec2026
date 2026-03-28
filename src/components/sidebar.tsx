@@ -66,22 +66,6 @@ export default function Sidebar() {
           <GitBranch size={20} strokeWidth={1.6} />
           <span className={tooltip}>Source Control</span>
         </Link>
-
-        <Link
-          href="/debug"
-          className={`${item} ${pathname === "/debug" ? active : ""}`}
-        >
-          <Bug size={20} strokeWidth={1.6} />
-          <span className={tooltip}>Debug</span>
-        </Link>
-
-        <Link
-          href="/terminal"
-          className={`${item} ${pathname === "/terminal" ? active : ""}`}
-        >
-          <Terminal size={20} strokeWidth={1.6} />
-          <span className={tooltip}>Terminal</span>
-        </Link>
       </div>
 
       {/* SPACER */}
