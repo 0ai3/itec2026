@@ -6,6 +6,8 @@ type CompletionRequestBody = {
 	language?: string
 	prefix?: string
 	suffix?: string
+	mode?: 'completion' | 'fix'
+	code?: string
 }
 
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
@@ -32,14 +34,30 @@ export async function POST(req: Request) {
 	try {
 		const body = (await req.json()) as CompletionRequestBody
 		const language = body.language?.trim() || 'plaintext'
-		const prefix = trimToMax(body.prefix ?? '', MAX_PREFIX_CHARS, true)
-		const suffix = trimToMax(body.suffix ?? '', MAX_SUFFIX_CHARS, false)
+		const mode = body.mode ?? 'completion'
+		const apiKey = getRequiredGroqKey()
 
-		if (prefix.trim().length < 2) {
+		const isFix = mode === 'fix'
+		const maxSource = 20_000
+		const sourceCode = isFix ? trimToMax(body.code ?? '', maxSource, true) : ''
+		const prefix = isFix ? '' : trimToMax(body.prefix ?? '', MAX_PREFIX_CHARS, true)
+		const suffix = isFix ? '' : trimToMax(body.suffix ?? '', MAX_SUFFIX_CHARS, false)
+
+		if (!isFix && prefix.trim().length < 2) {
 			return NextResponse.json({ completion: '' })
 		}
 
-		const apiKey = getRequiredGroqKey()
+		if (isFix && sourceCode.trim().length === 0) {
+			return NextResponse.json({ completion: '' })
+		}
+
+		const systemPrompt = isFix
+			? 'You are an expert software engineer. Rewrite the selected code to be correct, clean, and idiomatic. Return only the corrected code with no markdown, no backticks, no explanation.'
+			: 'You are an expert coding assistant. Return only code that continues from the prefix at the cursor position. No markdown, no backticks, no explanation.'
+
+		const userPrompt = isFix
+			? `Language: ${language}\n\nFix the selected code block exactly and return only the fixed code (do not add explanation).\n\nCode:\n${sourceCode}`
+			: `Language: ${language}\n\nComplete the code at <CURSOR>.\n\nPrefix:\n${prefix}\n<CURSOR>\nSuffix:\n${suffix}`
 
 		const response = await fetch(GROQ_ENDPOINT, {
 			method: 'POST',
@@ -52,34 +70,24 @@ export async function POST(req: Request) {
 				temperature: 0.2,
 				max_tokens: 160,
 				messages: [
-					{
-						role: 'system',
-						content:
-							'You are an expert coding assistant. Return only code that continues from the prefix at the cursor position. No markdown, no backticks, no explanation.',
-					},
-					{
-						role: 'user',
-						content: `Language: ${language}\n\nComplete the code at <CURSOR>.\n\nPrefix:\n${prefix}\n<CURSOR>\nSuffix:\n${suffix}`,
-					},
+					{ role: 'system', content: systemPrompt },
+					{ role: 'user', content: userPrompt },
 				],
 			}),
 			cache: 'no-store',
 		})
-
-		if (!response.ok) {
-			const errText = await response.text()
-			throw new Error(`Groq request failed (${response.status}): ${errText}`)
-		}
+		
 
 		const data = (await response.json()) as {
 			choices?: Array<{ message?: { content?: string } }>
 		}
 		const completion = data.choices?.[0]?.message?.content?.replace(/^```[a-zA-Z]*\n?|```$/g, '').trimEnd() ?? ''
 
-		return NextResponse.json({ completion })
+		return NextResponse.json({ completion });
+	
 	} catch (error) {
-		const message = error instanceof Error ? error.message : 'Completion failed'
-		const status = message.includes('Missing GROQ_API_KEY') ? 500 : 502
-		return NextResponse.json({ error: message, completion: '' }, { status })
+		const message = error instanceof Error ? error.message : 'Completion failed';
+		const status = message.includes('Missing GROQ_API_KEY') ? 500 : 502;
+		return NextResponse.json({ error: message, completion: '' }, { status });
 	}
 }

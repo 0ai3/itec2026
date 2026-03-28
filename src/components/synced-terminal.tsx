@@ -519,7 +519,7 @@ export default function SyncedTerminal({
                 : 'Type any command in /workspace and press Enter'
             }
             className="w-full bg-transparent text-sm outline-none placeholder:text-gray-500"
-            autoCapitalize="off"
+            autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
           />

@@ -4,7 +4,8 @@ import { getDatabase, type Database } from 'firebase/database'
 const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
 const explicitDatabaseUrl =
   process.env.FIREBASE_DATABASE_URL ?? process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL
-const derivedDatabaseUrl = projectId ? `https://${projectId}-default-rtdb.firebaseio.com` : undefined
+// Firbase Realtime DB default instance name is usually <PROJECT_ID>-default-rtdb
+const derivedDatabaseUrl = projectId ? `https://${projectId}-default-rtdb.europe-west1.firebasedatabase.app` : undefined
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
