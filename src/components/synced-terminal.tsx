@@ -83,6 +83,30 @@ export default function SyncedTerminal({
   }, [defaultCommand])
 
   useEffect(() => {
+    setImage(defaultImage)
+    const yImage = yImageRef.current
+    if (!yImage) {
+      return
+    }
+
+    suppressSyncRef.current = true
+    setYTextValue(yImage, defaultImage)
+    suppressSyncRef.current = false
+  }, [defaultImage])
+
+  useEffect(() => {
+    setCommand(defaultCommand)
+    const yCommand = yCommandRef.current
+    if (!yCommand) {
+      return
+    }
+
+    suppressSyncRef.current = true
+    setYTextValue(yCommand, defaultCommand)
+    suppressSyncRef.current = false
+  }, [defaultCommand])
+
+  useEffect(() => {
     let disposed = false
     let removeStatusListener: (() => void) | null = null
     let removeSyncListener: (() => void) | null = null

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { DragEvent, FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   collection,
   collectionGroup,
@@ -180,30 +180,74 @@ const findFirstFile = (nodes: RepoFileNode[]): string | null => {
   return null
 }
 
+const getParentFolderPath = (filePath: string) => {
+  const parts = filePath.split('/').filter(Boolean)
+  if (parts.length <= 1) {
+    return ''
+  }
+  return parts.slice(0, -1).join('/')
+}
+
 function FileTree({
   nodes,
   selectedFilePath,
+  selectedFolderPath,
   onSelectFile,
+  onSelectFolder,
+  onDropFilesToFolder,
 }: {
   nodes: RepoFileNode[]
   selectedFilePath: string | null
+  selectedFolderPath: string
   onSelectFile: (filePath: string) => void
+  onSelectFolder: (folderPath: string) => void
+  onDropFilesToFolder: (folderPath: string, files: File[]) => void
 }) {
+  const handleDirectoryDrop = (event: DragEvent<HTMLLIElement>, folderPath: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const files = Array.from(event.dataTransfer.files ?? [])
+    if (files.length === 0) {
+      return
+    }
+
+    onDropFilesToFolder(folderPath, files)
+  }
+
   return (
     <ul className="space-y-1">
       {nodes.map((node) => {
         if (node.type === 'directory') {
+          const isSelectedFolder = selectedFolderPath === node.path
           return (
-            <li key={node.path}>
-              <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide px-2 py-1 rounded bg-white/5">
+            <li
+              key={node.path}
+              onDragOver={(event) => {
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'copy'
+              }}
+              onDrop={(event) => handleDirectoryDrop(event, node.path)}
+            >
+              <button
+                type="button"
+                onClick={() => onSelectFolder(node.path)}
+                className={`w-full text-left text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded transition-colors ${
+                  isSelectedFolder ? 'bg-white/15 text-white shadow-sm' : 'text-gray-300 bg-white/5 hover:bg-white/10'
+                }`}
+                title={node.path}
+              >
                 {node.name}
-              </p>
+              </button>
               {node.children?.length ? (
                 <div className="ml-3 mt-1 border-l border-white/10 pl-2">
                   <FileTree
                     nodes={node.children}
                     selectedFilePath={selectedFilePath}
+                    selectedFolderPath={selectedFolderPath}
                     onSelectFile={onSelectFile}
+                    onSelectFolder={onSelectFolder}
+                    onDropFilesToFolder={onDropFilesToFolder}
                   />
                 </div>
               ) : (
@@ -254,7 +298,9 @@ export default function RepoEditorPage() {
 
   const [fileTree, setFileTree] = useState<RepoFileNode[]>([])
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
+  const [selectedFolderPath, setSelectedFolderPath] = useState('')
   const [selectedFileContent, setSelectedFileContent] = useState('')
+  const [isLoadingSelectedFile, setIsLoadingSelectedFile] = useState(false)
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [isSavingFile, setIsSavingFile] = useState(false)
   const [fileMessage, setFileMessage] = useState<string | null>(null)
@@ -477,12 +523,14 @@ export default function RepoEditorPage() {
     void checkAccess()
   }, [repoId, user])
 
-  const loadFileTree = useCallback(async () => {
+  const loadFileTree = useCallback(async (options?: { silent?: boolean }) => {
     if (!ownerUid) {
       return
     }
 
-    setIsLoadingFiles(true)
+    if (!options?.silent) {
+      setIsLoadingFiles(true)
+    }
     try {
       const response = await fetch(
         `/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(repoId)}`
@@ -505,7 +553,9 @@ export default function RepoEditorPage() {
         setErrorMessage(error.message)
       }
     }
-    setIsLoadingFiles(false)
+    if (!options?.silent) {
+      setIsLoadingFiles(false)
+    }
   }, [ownerUid, repoId, selectedFilePath])
 
   useEffect(() => {
@@ -527,11 +577,26 @@ export default function RepoEditorPage() {
   }, [ownerUid, repoId, loadFileTree])
 
   useEffect(() => {
+    if (!ownerUid) {
+      return
+    }
+
+    const interval = setInterval(() => {
+      void loadFileTree({ silent: true })
+    }, 1500)
+
+    return () => {
+      clearInterval(interval)
+    }
+  }, [ownerUid, loadFileTree])
+
+  useEffect(() => {
     const loadSelectedFile = async () => {
       if (!ownerUid || !selectedFilePath) {
         return
       }
 
+      setIsLoadingSelectedFile(true)
       try {
         const response = await fetch(
           `/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(
@@ -551,6 +616,8 @@ export default function RepoEditorPage() {
         if (error instanceof Error) {
           setErrorMessage(error.message)
         }
+      } finally {
+        setIsLoadingSelectedFile(false)
       }
     }
 
@@ -558,7 +625,7 @@ export default function RepoEditorPage() {
   }, [ownerUid, repoId, selectedFilePath])
 
   useEffect(() => {
-    if (!ownerUid || !selectedFilePath) {
+    if (!ownerUid || !selectedFilePath || isLoadingSelectedFile) {
       return
     }
 
@@ -587,7 +654,7 @@ export default function RepoEditorPage() {
     }, 400)
 
     return () => clearTimeout(timer)
-  }, [ownerUid, repoId, selectedFilePath, selectedFileContent, selectedFileAiRanges])
+  }, [ownerUid, repoId, selectedFilePath, selectedFileContent, selectedFileAiRanges, isLoadingSelectedFile])
 
   const handleInviteCollaborator = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -690,10 +757,22 @@ export default function RepoEditorPage() {
       return
     }
 
-    const filePath = window.prompt('New file path (e.g. src/main.py):')?.trim()
-    if (!filePath) {
+    const inputPath = window
+      .prompt(
+        selectedFolderPath
+          ? `New file name or path (current folder: ${selectedFolderPath})`
+          : 'New file path (e.g. src/main.py):'
+      )
+      ?.trim()
+    if (!inputPath) {
       return
     }
+
+    const normalizedInput = inputPath.replaceAll('\\', '/').replace(/^\/+/, '')
+    const filePath =
+      selectedFolderPath && !normalizedInput.includes('/')
+        ? `${selectedFolderPath}/${normalizedInput}`
+        : normalizedInput
 
     try {
       const response = await fetch('/api/repo-files', {
@@ -713,7 +792,12 @@ export default function RepoEditorPage() {
       }
       setFileTree(data.tree ?? [])
       setSelectedFilePath(filePath)
+      setSelectedFolderPath(getParentFolderPath(filePath))
+      setSelectedFileContent('')
       setSelectedFileAiRanges([])
+      setEditorReplaceContent('')
+      setEditorReplaceSource('user')
+      setEditorReplaceToken((prev) => prev + 1)
       setEditorAiRangesToken((prev) => prev + 1)
     } catch (error) {
       if (error instanceof Error) {
@@ -754,6 +838,65 @@ export default function RepoEditorPage() {
       }
     }
   }
+
+  const handleDropFilesToFolder = useCallback(async (folderPath: string, files: File[]) => {
+    if (!ownerUid) {
+      return
+    }
+
+    if (files.length === 0) {
+      return
+    }
+
+    setErrorMessage(null)
+    setFileMessage(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}...`)
+
+    try {
+      for (const file of files) {
+        const content = await file.text()
+        const targetPath = folderPath ? `${folderPath}/${file.name}` : file.name
+
+        const response = await fetch('/api/repo-files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create-file',
+            ownerUid,
+            repoId,
+            filePath: targetPath,
+            content,
+          }),
+        })
+
+        const data = (await response.json()) as { tree?: RepoFileNode[]; error?: string }
+        if (!response.ok) {
+          throw new Error(data.error || `Unable to upload ${file.name}`)
+        }
+
+        setFileTree(data.tree ?? [])
+      }
+
+      setSelectedFolderPath(folderPath)
+      setFileMessage(`Uploaded ${files.length} file${files.length > 1 ? 's' : ''} to ${folderPath || 'root'}.`)
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message)
+      }
+      setFileMessage(null)
+    }
+  }, [ownerUid, repoId])
+
+  const handleDropFilesAnywhere = useCallback((event: DragEvent<HTMLElement>) => {
+    event.preventDefault()
+
+    const files = Array.from(event.dataTransfer.files ?? [])
+    if (files.length === 0) {
+      return
+    }
+
+    const targetFolderPath = selectedFolderPath || ''
+    void handleDropFilesToFolder(targetFolderPath, files)
+  }, [handleDropFilesToFolder, selectedFolderPath])
 
   const handleImportCodeFromChat = (code: string) => {
     if (!selectedFilePath) {
@@ -804,7 +947,14 @@ export default function RepoEditorPage() {
   }
 
   return (
-    <main className="flex-1 flex flex-col bg-[#0b1220] text-gray-100">
+    <main
+      className="flex-1 flex flex-col bg-[#0b1220] text-gray-100"
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+      }}
+      onDrop={handleDropFilesAnywhere}
+    >
       <Navbar />
       <section className="px-4 md:px-6 pt-4 pb-4 max-w-[1600px] w-full mx-auto">
         <div className="border border-white/10 rounded-2xl p-4 md:p-5 bg-[#111a2c] backdrop-blur-sm shadow-sm">
@@ -870,7 +1020,7 @@ export default function RepoEditorPage() {
         </div>
       </section>
 
-      <section className="px-4 md:px-6 pb-6 max-w-[1600px] w-full mx-auto grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 flex-1 min-h-0">
+      <section className="px-4 md:px-6 pb-6 max-w-400 w-full mx-auto grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 flex-1 min-h-0">
         <aside className="border border-white/10 rounded-2xl p-3.5 overflow-auto bg-[#111a2c] shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold">Files</h2>
@@ -908,7 +1058,15 @@ export default function RepoEditorPage() {
             <FileTree
               nodes={fileTree}
               selectedFilePath={selectedFilePath}
-              onSelectFile={setSelectedFilePath}
+                selectedFolderPath={selectedFolderPath}
+                onSelectFile={(filePath) => {
+                  setSelectedFilePath(filePath)
+                  setSelectedFolderPath(getParentFolderPath(filePath))
+                }}
+                onSelectFolder={(folderPath) => {
+                  setSelectedFolderPath(folderPath)
+                }}
+                onDropFilesToFolder={handleDropFilesToFolder}
             />
           )}
         </aside>
@@ -936,7 +1094,7 @@ export default function RepoEditorPage() {
             {fileMessage ? <p className="text-xs text-green-600 mt-2">{fileMessage}</p> : null}
           </div>
 
-          <div className="h-[52vh] min-h-[420px] lg:h-[60vh] border border-white/10 rounded-2xl overflow-hidden bg-[#0f1729] shadow-sm">
+          <div className="h-[52vh] min-h-105 lg:h-[60vh] border border-white/10 rounded-2xl overflow-hidden bg-[#0f1729] shadow-sm">
             {selectedFilePath ? (
               <Editor
                 key={effectiveEditorRoom}
@@ -954,7 +1112,7 @@ export default function RepoEditorPage() {
               />
             ) : (
               <div className="h-full grid place-items-center text-sm text-gray-400">
-                Select a file from the sidebar.
+                {/* Select a file from the sidebar. */}
               </div>
             )}
           </div>
