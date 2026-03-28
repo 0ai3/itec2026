@@ -597,82 +597,91 @@ export default function RepoEditorPage() {
   const [collaborationRoomId, setCollaborationRoomId] =
     useState<string>(repoId);
 
-  const [fileTree, setFileTree] = useState<RepoFileNode[]>([]);
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-  const [selectedFolderPath, setSelectedFolderPath] = useState("");
-  const [selectedFileContent, setSelectedFileContent] = useState("");
-  const [isLoadingSelectedFile, setIsLoadingSelectedFile] = useState(false);
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-  const [isSavingFile, setIsSavingFile] = useState(false);
-  const [fileMessage, setFileMessage] = useState<string | null>(null);
-  const [editorReplaceToken, setEditorReplaceToken] = useState(0);
-  const [editorReplaceContent, setEditorReplaceContent] = useState("");
-  const [editorReplaceSource, setEditorReplaceSource] = useState<"ai" | "user">(
-    "user",
-  );
-  const [selectedFileAiRanges, setSelectedFileAiRanges] = useState<AiRange[]>(
-    [],
-  );
-  const [editorAiRangesToken, setEditorAiRangesToken] = useState(0);
-  const [fileVersions, setFileVersions] = useState<FileVersionSummary[]>([]);
-  const [selectedVersionIndex, setSelectedVersionIndex] = useState<
-    number | null
-  >(null);
-  const [previewVersionContent, setPreviewVersionContent] = useState("");
-  const [previewVersionAiRanges, setPreviewVersionAiRanges] = useState<
-    AiRange[]
-  >([]);
-  const [isLoadingVersionHistory, setIsLoadingVersionHistory] = useState(false);
-  const [isLoadingVersionPreview, setIsLoadingVersionPreview] = useState(false);
-  const [isRestoringVersion, setIsRestoringVersion] = useState(false);
+  const [fileTree, setFileTree] = useState<RepoFileNode[]>([])
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
+  const [loadedSelectedFilePath, setLoadedSelectedFilePath] = useState<string | null>(null)
+  const [selectedFolderPath, setSelectedFolderPath] = useState('')
+  const [selectedFileContent, setSelectedFileContent] = useState('')
+  const [isLoadingSelectedFile, setIsLoadingSelectedFile] = useState(false)
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false)
+  const [isSavingFile, setIsSavingFile] = useState(false)
+  const [fileMessage, setFileMessage] = useState<string | null>(null)
+  const [editorReplaceToken, setEditorReplaceToken] = useState(0)
+  const [editorReplaceContent, setEditorReplaceContent] = useState('')
+  const [editorReplaceSource, setEditorReplaceSource] = useState<'ai' | 'user'>('user')
+  const [selectedFileAiRanges, setSelectedFileAiRanges] = useState<AiRange[]>([])
+  const [editorAiRangesToken, setEditorAiRangesToken] = useState(0)
+  const [fileVersions, setFileVersions] = useState<FileVersionSummary[]>([])
+  const [selectedVersionIndex, setSelectedVersionIndex] = useState<number | null>(null)
+  const [previewVersionContent, setPreviewVersionContent] = useState('')
+  const [previewVersionAiRanges, setPreviewVersionAiRanges] = useState<AiRange[]>([])
+  const [isLoadingVersionHistory, setIsLoadingVersionHistory] = useState(false)
+  const [isLoadingVersionPreview, setIsLoadingVersionPreview] = useState(false)
+  const [isRestoringVersion, setIsRestoringVersion] = useState(false)
 
   // UI state
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [terminalOpen, setTerminalOpen] = useState(true);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [panelTab, setPanelTab] = useState<PanelTab>("TERMINAL");
-  const [explorerContextMenu, setExplorerContextMenu] =
-    useState<ExplorerContextMenuState | null>(null);
-  const contextMenuRef = useRef<HTMLDivElement | null>(null);
-  const activeDragEntryRef = useRef<ExplorerDragPayload | null>(null);
-  const dragHoverFolderRef = useRef<string>("");
-  const dragMoveTriggeredRef = useRef(false);
-  const moveInFlightRef = useRef(false);
-  const selectedFilePathRef = useRef<string | null>(null);
-  const selectedFileLoadRequestRef = useRef(0);
-  const lastPersistedSnapshotRef = useRef<{
-    path: string | null;
-    content: string;
-    aiRangesKey: string;
-  }>({
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(true)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [explorerContextMenu, setExplorerContextMenu] = useState<ExplorerContextMenuState | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement | null>(null)
+  const activeDragEntryRef = useRef<ExplorerDragPayload | null>(null)
+  const dragHoverFolderRef = useRef<string>('')
+  const dragMoveTriggeredRef = useRef(false)
+  const moveInFlightRef = useRef(false)
+  const selectedFilePathRef = useRef<string | null>(null)
+  const selectedFileLoadRequestRef = useRef(0)
+  const hasPendingLocalEditsRef = useRef(false)
+  const lastLoadedAtRef = useRef(0)
+  const lastPersistedSnapshotRef = useRef<{ path: string | null; content: string; aiRangesKey: string }>({
     path: null,
     content: "",
     aiRangesKey: "[]",
   });
 
   useEffect(() => {
-    selectedFilePathRef.current = selectedFilePath;
-  }, [selectedFilePath]);
+    selectedFilePathRef.current = selectedFilePath
+  }, [selectedFilePath])
 
-  const handleEditorCodeChange = useCallback(
-    (editorFilePath: string, code: string) => {
-      if (selectedFilePathRef.current !== editorFilePath) {
-        return;
-      }
-      setSelectedFileContent(code);
-    },
-    [],
-  );
+  useEffect(() => {
+    setLoadedSelectedFilePath(null)
+    hasPendingLocalEditsRef.current = false
+  }, [selectedFilePath])
 
-  const handleEditorAiRangesChange = useCallback(
-    (editorFilePath: string, ranges: AiRange[]) => {
-      if (selectedFilePathRef.current !== editorFilePath) {
-        return;
-      }
-      setSelectedFileAiRanges(ranges);
-    },
-    [],
-  );
+  const handleEditorCodeChange = useCallback((editorFilePath: string, code: string) => {
+    if (selectedFilePathRef.current !== editorFilePath) {
+      return
+    }
+    if (loadedSelectedFilePath !== editorFilePath || isLoadingSelectedFile) {
+      return
+    }
+
+    const lastSnapshot = lastPersistedSnapshotRef.current
+    const isSuspiciousInitialBlank =
+      code.length === 0 &&
+      lastSnapshot.path === editorFilePath &&
+      lastSnapshot.content.length > 0 &&
+      !hasPendingLocalEditsRef.current &&
+      Date.now() - lastLoadedAtRef.current < 10_000
+
+    if (isSuspiciousInitialBlank) {
+      return
+    }
+
+    hasPendingLocalEditsRef.current = true
+    setSelectedFileContent(code)
+  }, [loadedSelectedFilePath, isLoadingSelectedFile])
+
+  const handleEditorAiRangesChange = useCallback((editorFilePath: string, ranges: AiRange[]) => {
+    if (selectedFilePathRef.current !== editorFilePath) {
+      return
+    }
+    if (loadedSelectedFilePath !== editorFilePath || isLoadingSelectedFile) {
+      return
+    }
+    hasPendingLocalEditsRef.current = true
+    setSelectedFileAiRanges(ranges)
+  }, [loadedSelectedFilePath, isLoadingSelectedFile])
 
   // Resize panels
   const sidebar = useResize(220, 140, 400, "horizontal");
@@ -959,27 +968,27 @@ export default function RepoEditorPage() {
         if (selectedFileLoadRequestRef.current !== requestId) {
           return;
         }
-        const content = data.content ?? "";
-        const normalizedRanges = normalizeAiRanges(
-          data.aiRanges ?? [],
-          content,
-        );
-        setSelectedFileContent(content);
-        setSelectedFileAiRanges(normalizedRanges);
+        const content = data.content ?? ''
+        const normalizedRanges = normalizeAiRanges(data.aiRanges ?? [], content)
+        setSelectedFileContent(content)
+        setSelectedFileAiRanges(normalizedRanges)
+        setLoadedSelectedFilePath(requestedPath)
+        lastLoadedAtRef.current = Date.now()
+        hasPendingLocalEditsRef.current = false
         lastPersistedSnapshotRef.current = {
           path: requestedPath,
           content,
           aiRangesKey: JSON.stringify(normalizedRanges),
-        };
-        setPreviewVersionContent("");
-        setPreviewVersionAiRanges([]);
-        setEditorAiRangesToken((p) => p + 1);
-        setEditorReplaceSource("user");
-        setFileMessage(null);
-        await loadFileVersions();
-      } catch (e) {
-        if (e instanceof Error) setErrorMessage(e.message);
-      }
+        }
+        setPreviewVersionContent('')
+        setPreviewVersionAiRanges([])
+        setEditorReplaceContent(content)
+        setEditorReplaceSource('user')
+        setEditorReplaceToken(p => p + 1)
+        setEditorAiRangesToken(p => p + 1)
+        setFileMessage(null)
+        await loadFileVersions()
+      } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
       if (selectedFileLoadRequestRef.current === requestId) {
         setIsLoadingSelectedFile(false);
       }
@@ -991,25 +1000,38 @@ export default function RepoEditorPage() {
   useEffect(() => {
     if (!ownerUid || !selectedFilePath) return;
     const intervalId = setInterval(() => {
-      if (
-        !ownerUid ||
-        !selectedFilePath ||
-        isLoadingSelectedFile ||
-        moveInFlightRef.current ||
-        isSavingFile
-      ) {
-        return;
+      if (!ownerUid || !selectedFilePath || isLoadingSelectedFile || moveInFlightRef.current || isSavingFile) {
+        return
       }
 
-      const aiRangesKey = JSON.stringify(selectedFileAiRanges);
-      const lastSnapshot = lastPersistedSnapshotRef.current;
+      if (loadedSelectedFilePath !== selectedFilePath) {
+        return
+      }
+
+      if (!hasPendingLocalEditsRef.current) {
+        return
+      }
+
+      const aiRangesKey = JSON.stringify(selectedFileAiRanges)
+      const lastSnapshot = lastPersistedSnapshotRef.current
       const hasChanges =
         lastSnapshot.path !== selectedFilePath ||
         lastSnapshot.content !== selectedFileContent ||
         lastSnapshot.aiRangesKey !== aiRangesKey;
 
       if (!hasChanges) {
-        return;
+        hasPendingLocalEditsRef.current = false
+        return
+      }
+
+      const isLikelySwitchBlankOverwrite =
+        selectedFileContent.length === 0 &&
+        lastSnapshot.path === selectedFilePath &&
+        lastSnapshot.content.length > 0 &&
+        Date.now() - lastLoadedAtRef.current < 10_000
+
+      if (isLikelySwitchBlankOverwrite) {
+        return
       }
 
       void fetch("/api/repo-files", {
@@ -1034,7 +1056,8 @@ export default function RepoEditorPage() {
             path: selectedFilePath,
             content: selectedFileContent,
             aiRangesKey,
-          };
+          }
+          hasPendingLocalEditsRef.current = false
         })
         .catch((error) => {
           if (error instanceof Error) {
@@ -1043,16 +1066,8 @@ export default function RepoEditorPage() {
         });
     }, 2_000);
 
-    return () => clearInterval(intervalId);
-  }, [
-    ownerUid,
-    repoId,
-    selectedFilePath,
-    selectedFileContent,
-    selectedFileAiRanges,
-    isLoadingSelectedFile,
-    isSavingFile,
-  ]);
+    return () => clearInterval(intervalId)
+  }, [ownerUid, repoId, selectedFilePath, loadedSelectedFilePath, selectedFileContent, selectedFileAiRanges, isLoadingSelectedFile, isSavingFile])
 
   const handleInvite = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1101,37 +1116,36 @@ export default function RepoEditorPage() {
   };
 
   const handleSaveFile = async () => {
-    if (!ownerUid || !selectedFilePath) return;
-    setIsSavingFile(true);
-    setFileMessage(null);
+    if (!ownerUid || !selectedFilePath) return
+    if (loadedSelectedFilePath !== selectedFilePath || isLoadingSelectedFile) return
+    setIsSavingFile(true); setFileMessage(null)
     try {
-      const res = await fetch("/api/repo-files", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "save",
-          ownerUid,
-          repoId,
-          filePath: selectedFilePath,
-          content: selectedFileContent,
-          aiRanges: selectedFileAiRanges,
-          createVersion: true,
-        }),
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || "Unable to save");
+      const lastSnapshot = lastPersistedSnapshotRef.current
+      if (
+        selectedFileContent.length === 0 &&
+        lastSnapshot.path === selectedFilePath &&
+        lastSnapshot.content.length > 0
+      ) {
+        const confirmed = window.confirm('This file is currently empty. Save will overwrite existing content. Continue?')
+        if (!confirmed) {
+          return
+        }
+      }
+
+      const res = await fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ownerUid, repoId, filePath: selectedFilePath, content: selectedFileContent, aiRanges: selectedFileAiRanges, createVersion: true }) })
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Unable to save')
       lastPersistedSnapshotRef.current = {
         path: selectedFilePath,
         content: selectedFileContent,
         aiRangesKey: JSON.stringify(selectedFileAiRanges),
-      };
-      setFileMessage(`Saved`);
-      await loadFileVersions();
-    } catch (e) {
-      if (e instanceof Error) setErrorMessage(e.message);
-    }
-    setIsSavingFile(false);
-  };
+      }
+      hasPendingLocalEditsRef.current = false
+      setFileMessage(`Saved`)
+      await loadFileVersions()
+    } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
+    setIsSavingFile(false)
+  }
 
   const handleTimelinePreview = useCallback(
     async (index: number) => {
@@ -2386,105 +2400,39 @@ export default function RepoEditorPage() {
                 </button>
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "6px 12px",
-                  background: "#0f141b",
-                  borderBottom: "1px solid #21262d",
-                  flexShrink: 0,
-                }}
-              >
-                <span style={{ color: "#6e7681", fontSize: 12 }}>
-                  {repoName ?? repoId}
-                </span>
-                {breadcrumbs.map((crumb, idx) => (
-                  <span
-                    key={`${crumb}-${idx}`}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      color: "#8b949e",
-                      fontSize: 12,
-                    }}
-                  >
-                    <span style={{ color: "#21262d" }}>/</span>
-                    <span>{crumb}</span>
-                  </span>
-                ))}
-                <div style={{ flex: 1 }} />
-                <span style={{ color: "#8b949e", fontSize: 11 }}>
-                  History: {selectedVersionTimeLabel}
-                </span>
-                <span style={{ color: "#8b949e", fontSize: 11 }}>
-                  Lang: {editorLanguage}
-                </span>
-              </div>
-
-              <div
-                style={{
-                  flex: 1,
-                  overflow: "hidden",
-                  minHeight: 0,
-                  display: "flex",
-                }}
-              >
-                <div
-                  style={{
-                    flex: isHtmlPreviewFile ? "0 0 55%" : 1,
-                    minWidth: 0,
-                    borderRight: isHtmlPreviewFile
-                      ? "1px solid #21262d"
-                      : "none",
-                  }}
-                >
-                  {selectedFilePath ? (
-                    <Editor
-                      key={effectiveEditorRoom}
-                      roomId={effectiveEditorRoom}
-                      language={editorLanguage}
-                      initialCode={selectedFileContent}
-                      onCodeChange={(code) =>
-                        handleEditorCodeChange(selectedFilePath, code)
-                      }
-                      replaceContentToken={editorReplaceToken}
-                      replaceContentValue={editorReplaceContent}
-                      replaceContentSource={editorReplaceSource}
-                      initialAiRanges={selectedFileAiRanges}
-                      aiRangesToken={editorAiRangesToken}
-                      onAiRangesChange={(ranges) =>
-                        handleEditorAiRangesChange(selectedFilePath, ranges)
-                      }
-                      embedded
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        height: "100%",
-                        display: "grid",
-                        placeItems: "center",
-                      }}
-                    >
-                      <div style={{ textAlign: "center" }}>
-                        <p
-                          style={{
-                            color: "#8b949e",
-                            fontSize: 14,
-                            marginBottom: 8,
-                          }}
-                        >
-                          No file selected
-                        </p>
-                        <p style={{ color: "#6e7681", fontSize: 12 }}>
-                          Pick a file from the explorer or drop files anywhere
-                        </p>
-                      </div>
-                    </div>
-                  )}
+          {/* Editor area */}
+          <div style={{ flex: 1, overflow: 'hidden', minHeight: 0, display: 'flex' }}>
+            <div style={{ flex: isHtmlPreviewFile ? '0 0 55%' : 1, minWidth: 0, borderRight: isHtmlPreviewFile ? '1px solid #21262d' : 'none' }}>
+              {selectedFilePath ? (
+                isLoadingSelectedFile || loadedSelectedFilePath !== selectedFilePath ? (
+                  <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
+                    <p style={{ color: '#8b949e', fontSize: 13 }}>Loading file…</p>
+                  </div>
+                ) : (
+                  <Editor
+                    key={effectiveEditorRoom}
+                    roomId={effectiveEditorRoom}
+                    language={editorLanguage}
+                    initialCode={selectedFileContent}
+                    onCodeChange={(code) => handleEditorCodeChange(selectedFilePath, code)}
+                    replaceContentToken={editorReplaceToken}
+                    replaceContentValue={editorReplaceContent}
+                    replaceContentSource={editorReplaceSource}
+                    initialAiRanges={selectedFileAiRanges}
+                    aiRangesToken={editorAiRangesToken}
+                    onAiRangesChange={(ranges) => handleEditorAiRangesChange(selectedFilePath, ranges)}
+                    embedded
+                  />
+                )
+              ) : (
+                <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ color: '#8b949e', fontSize: 14, marginBottom: 8 }}>No file selected</p>
+                    <p style={{ color: '#6e7681', fontSize: 12 }}>Pick a file from the explorer or drop files anywhere</p>
+                  </div>
                 </div>
+              )}
+            </div>
 
                 {isHtmlPreviewFile && (
                   <div
