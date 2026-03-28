@@ -132,23 +132,11 @@ export default function SearchPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "260px 1fr",
+          gridTemplateColumns: "1fr",
           flex: 1,
           overflow: "hidden",
         }}
       >
-        {/* sidebar */}
-        <div
-          style={{
-            borderRight: "1px solid #21262d",
-            background: "#0d1117",
-          }}
-        >
-          <SidebarItem title="Workspace" href="/workspace" />
-          <SidebarItem title="Profile" href="/profile" />
-          <SidebarItem title="Dashboard" href="/" />
-        </div>
-
         {/* content */}
         <div
           style={{
@@ -327,24 +315,6 @@ export default function SearchPage() {
         </div>
       </div>
     </main>
-  );
-}
-
-function SidebarItem({ title, href }: { title: string; href: string }) {
-  return (
-    <Link
-      href={href}
-      style={{
-        display: "block",
-        padding: "10px 14px",
-        fontSize: 12,
-        color: "#8b949e",
-        borderBottom: "1px solid #161b22",
-        textDecoration: "none",
-      }}
-    >
-      {title}
-    </Link>
   );
 }
 

@@ -30,17 +30,9 @@ export default function Sidebar() {
     <aside className="fixed left-0 top-0 z-50 flex h-screen w-14 flex-col bg-[#0d1117] border-r border-[#30363d]">
       {/* TOP ICONS */}
       <div className="flex flex-col items-center pt-2">
-        <Link href="/" className={`${item} ${pathname === "/" ? active : ""}`}>
+        <Link href="/workspace" className={`${item} ${pathname === "/workspace" ? active : ""}`}>
           <LayoutDashboard size={20} strokeWidth={1.6} />
           <span className={tooltip}>Dashboard</span>
-        </Link>
-
-        <Link
-          href="/workspace"
-          className={`${item} ${pathname === "/workspace" ? active : ""}`}
-        >
-          <Files size={20} strokeWidth={1.6} />
-          <span className={tooltip}>Explorer</span>
         </Link>
 
         <Link

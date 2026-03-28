@@ -1,9 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
 import { useEffect, useRef, useState } from "react";
+import { auth } from "@/lib/firebase";
 
 export default function CharacterLandingPage() {
+  const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
   const ringRef = useRef<HTMLDivElement>(null);
@@ -11,6 +16,27 @@ export default function CharacterLandingPage() {
   const s1Ref = useRef<HTMLDivElement>(null);
   const s2Ref = useRef<HTMLDivElement>(null);
   const s3Ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!auth) {
+      setAuthChecked(true);
+      return;
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        router.replace("/workspace");
+        return;
+      }
+      setAuthChecked(true);
+    });
+
+    return unsubscribe;
+  }, [router]);
+
+  if (!authChecked) {
+    return null;
+  }
 
   // ── TERMINAL LINES
   const LINES = [
@@ -28,7 +54,7 @@ export default function CharacterLandingPage() {
     { t: "success", text: "✓ Container spawned in 1.4s · 128mb" },
     { t: "dim", text: "" },
     { t: "ai", text: "✦ AI generated 14 lines in routes.py" },
-    { t: "info", text: "  → Ana accepted block #1" },
+    { t: "info", text: "  → Ana typed '14141414'" },
     { t: "warn", text: "  → Radu rejected block #2 (hallucination)" },
     { t: "success", text: "✓ Tests passed · exit 0 · 2.3s" },
     { t: "dim", text: "" },
