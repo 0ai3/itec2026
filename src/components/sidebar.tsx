@@ -80,14 +80,6 @@ export default function Sidebar() {
           <User size={20} strokeWidth={1.6} />
           <span className={tooltip}>Profile</span>
         </Link>
-
-        <Link
-          href="/settings"
-          className={`${item} ${pathname === "/settings" ? active : ""}`}
-        >
-          <Settings size={20} strokeWidth={1.6} />
-          <span className={tooltip}>Settings</span>
-        </Link>
       </div>
     </aside>
   );

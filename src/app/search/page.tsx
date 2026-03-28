@@ -33,9 +33,7 @@ export default function SearchPage() {
 
     const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
-      if (!nextUser) {
-        router.replace("/login");
-      }
+      if (!nextUser) router.replace("/login");
     });
 
     return () => unsubscribe();
@@ -85,8 +83,8 @@ export default function SearchPage() {
     () => [
       { label: "Open workspace", href: "/workspace", hint: "⌘K" },
       { label: "View profile", href: "/profile", hint: "P" },
-      { label: "Settings", href: "/settings", hint: "," },
       { label: "Pipelines", href: "/dockertest", hint: "⇧B" },
+      { label: "Dashboard", href: "/", hint: "D" },
     ],
     [],
   );
@@ -102,142 +100,280 @@ export default function SearchPage() {
   }, [queryText, repos]);
 
   return (
-    <main className="ml-12 min-h-screen bg-[#0a0f16] text-[#c9d1d9]">
-      <div
-        className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(88,166,255,0.12),transparent_35%),radial-gradient(circle_at_80%_10%,rgba(63,185,80,0.12),transparent_30%),radial-gradient(circle_at_50%_80%,rgba(248,81,73,0.12),transparent_30%)]"
-        aria-hidden
-      />
-
+    <main
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        minHeight: "100vh",
+        background: "#0d1117",
+        color: "#e6edf3",
+        fontFamily: "'JetBrains Mono','Fira Code',monospace",
+        overflow: "hidden",
+      }}
+    >
       <Navbar />
 
-      <section className="relative mx-auto max-w-6xl px-6 pb-14 pt-10">
-        <header className="mb-8 space-y-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-2">
-              <p className="text-xs uppercase tracking-[0.24em] text-[#7a8699]">
-                Search
-              </p>
-              <h1 className="text-3xl font-semibold text-white">
-                Command search & repo jump
-              </h1>
-              <p className="text-sm text-[#8b949e]">
-                Filter repos, scan shortcuts, and move faster without leaving
-                this screen.
-              </p>
-            </div>
-            <div className="flex w-full max-w-xl items-center gap-3 rounded-2xl border border-[#1f2a38] bg-[#0f1622] px-4 py-3 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
-              <span className="text-xs font-semibold text-[#58a6ff]">⌘K</span>
-              <input
-                value={queryText}
-                onChange={(event) => setQueryText(event.target.value)}
-                placeholder="Search repos, IDs, actions..."
-                className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[#6e7681]"
-              />
-              <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
-                Enter
-              </span>
-            </div>
-          </div>
+      {/* top bar */}
+      <div
+        style={{
+          height: 42,
+          borderBottom: "1px solid #21262d",
+          background: "#161b22",
+          display: "flex",
+          alignItems: "center",
+          padding: "0 16px",
+          fontSize: 12,
+          color: "#8b949e",
+        }}
+      >
+        search
+      </div>
 
-          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {[
-              `Repos ${repos.length || 0}`,
-              `Matches ${filteredRepos.length}`,
-              `Status ${user ? "Signed in" : "Guest"}`,
-              "Shortcuts 4x",
-            ].map((label) => (
-              <div
-                key={label}
-                className="rounded-xl border border-[#1f2a38] bg-[#0f1622] px-4 py-3 text-sm text-white shadow-[0_12px_35px_rgba(0,0,0,0.35)]"
-              >
-                <p className="text-[11px] uppercase tracking-wide text-[#7a8699]">
-                  {label.split(" ")[0]}
-                </p>
-                <p className="text-lg font-semibold">
-                  {label.split(" ").slice(1).join(" ")}
-                </p>
-              </div>
-            ))}
-          </div>
-        </header>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "260px 1fr",
+          flex: 1,
+          overflow: "hidden",
+        }}
+      >
+        {/* sidebar */}
+        <div
+          style={{
+            borderRight: "1px solid #21262d",
+            background: "#0d1117",
+          }}
+        >
+          <SidebarItem title="Workspace" href="/workspace" />
+          <SidebarItem title="Profile" href="/profile" />
+          <SidebarItem title="Pipelines" href="/dockertest" />
+          <SidebarItem title="Dashboard" href="/" />
+        </div>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-5 shadow-[0_18px_55px_rgba(0,0,0,0.45)]">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">
-                Quick actions
-              </h2>
-              <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
-                Navigator
-              </span>
+        {/* content */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          {/* header */}
+          <div style={{ padding: 20, borderBottom: "1px solid #21262d" }}>
+            <div style={{ fontSize: 18, fontWeight: 600 }}>
+              Search repositories
             </div>
-            <div className="grid gap-2 text-sm">
-              {quickActions.map((action) => (
-                <Link
-                  key={action.href}
-                  href={action.href}
-                  className="flex items-center justify-between rounded-lg border border-[#263346] bg-[#0b111b] px-4 py-3 text-white transition hover:-translate-y-px hover:border-[#58a6ff]"
+            <div style={{ fontSize: 12, color: "#8b949e", marginTop: 4 }}>
+              Date live din Firestore, același layout/culori ca dashboard.
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+              <div style={{ flex: 1, display: "flex", gap: 8 }}>
+                <input
+                  value={queryText}
+                  onChange={(event) => setQueryText(event.target.value)}
+                  placeholder="Search repos or IDs"
+                  style={{
+                    flex: 1,
+                    background: "#0d1117",
+                    color: "#e6edf3",
+                    border: "1px solid #30363d",
+                    padding: "8px 10px",
+                    fontSize: 12,
+                    borderRadius: 6,
+                    outline: "none",
+                  }}
+                />
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "0 10px",
+                    fontSize: 11,
+                    color: "#8b949e",
+                    border: "1px solid #30363d",
+                    borderRadius: 6,
+                    background: "#161b22",
+                  }}
                 >
-                  <div className="space-y-0.5">
-                    <p className="font-semibold">{action.label}</p>
-                    <p className="text-[11px] text-[#7a8699]">Jump directly</p>
-                  </div>
-                  <span className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-[#8b949e]">
-                    {action.hint}
-                  </span>
-                </Link>
-              ))}
+                  ⌘K
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-5 shadow-[0_18px_55px_rgba(0,0,0,0.45)]">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-white">Your repos</h2>
-                <p className="text-sm text-[#8b949e]">
-                  Sorted by newest; filtered live.
-                </p>
-              </div>
-              <span className="rounded-full bg-[#0a0f16] px-3 py-1 text-[11px] text-[#8b949e]">
-                {filteredRepos.length} match
-                {filteredRepos.length === 1 ? "" : "es"}
-              </span>
-            </div>
-
-            {errorMessage ? (
-              <p className="text-sm text-red-400">{errorMessage}</p>
-            ) : isLoading ? (
-              <p className="text-sm text-[#8b949e]">Loading repos...</p>
-            ) : filteredRepos.length === 0 ? (
-              <p className="text-sm text-[#8b949e]">
-                No repos found. Try another term.
-              </p>
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2 text-sm">
-                {filteredRepos.map((repo) => (
-                  <div
-                    key={repo.id}
-                    className="flex h-full flex-col justify-between rounded-lg border border-[#263346] bg-[#0b111b] px-4 py-4 transition hover:-translate-y-px hover:border-[#58a6ff]"
-                  >
-                    <div className="space-y-1">
-                      <p className="text-white">{repo.name}</p>
-                      <p className="text-[11px] text-[#8b949e]">
-                        ID: {repo.id}
-                      </p>
+          {/* panels */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 16,
+              padding: 16,
+              overflow: "auto",
+            }}
+          >
+            <Panel title="Quick actions">
+              {quickActions.map((action) => (
+                <div
+                  key={action.href}
+                  style={{
+                    padding: 12,
+                    borderBottom: "1px solid #30363d",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13 }}>{action.label}</div>
+                    <div style={{ fontSize: 11, color: "#8b949e" }}>
+                      Jump directly
                     </div>
-                    <Link
-                      href={`/repo/${repo.id}`}
-                      className="mt-3 inline-flex w-fit items-center gap-2 rounded-md border border-[#263346] px-3 py-1.5 text-xs font-semibold text-[#58a6ff] transition hover:border-[#58a6ff] hover:bg-[#0f1826] hover:text-[#79c0ff]"
-                    >
-                      Open
-                    </Link>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "#8b949e",
+                      border: "1px solid #30363d",
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                    }}
+                  >
+                    {action.hint}
+                  </div>
+                </div>
+              ))}
+            </Panel>
+
+            <Panel title="Stats">
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, minmax(0,1fr))",
+                  borderBottom: "1px solid #30363d",
+                }}
+              >
+                {[
+                  { label: "Repos", value: repos.length },
+                  { label: "Matches", value: filteredRepos.length },
+                ].map((item, idx) => (
+                  <div
+                    key={item.label}
+                    style={{
+                      padding: 12,
+                      borderRight: idx === 0 ? "1px solid #30363d" : undefined,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: "#8b949e" }}>
+                      {item.label}
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 600 }}>
+                      {item.value}
+                    </div>
                   </div>
                 ))}
               </div>
-            )}
+              <div style={{ padding: 12, fontSize: 12, color: "#8b949e" }}>
+                Status: {user ? "Signed in" : "Guest"}
+              </div>
+            </Panel>
+
+            <Panel title="Results">
+              {errorMessage ? (
+                <div style={{ padding: 12, fontSize: 12, color: "#f85149" }}>
+                  {errorMessage}
+                </div>
+              ) : isLoading ? (
+                <div style={{ padding: 12, fontSize: 12, color: "#8b949e" }}>
+                  Loading repos...
+                </div>
+              ) : filteredRepos.length === 0 ? (
+                <div style={{ padding: 12, fontSize: 12, color: "#8b949e" }}>
+                  No repos found. Try another term.
+                </div>
+              ) : (
+                filteredRepos.map((repo) => (
+                  <div
+                    key={repo.id}
+                    style={{
+                      padding: 12,
+                      borderBottom: "1px solid #30363d",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 13 }}>{repo.name}</div>
+                      <div style={{ fontSize: 11, color: "#8b949e" }}>
+                        ID: {repo.id}
+                      </div>
+                    </div>
+                    <Link
+                      href={`/repo/${repo.id}`}
+                      style={{ fontSize: 11, color: "#58a6ff" }}
+                    >
+                      open
+                    </Link>
+                  </div>
+                ))
+              )}
+            </Panel>
+
+            <div />
           </div>
         </div>
-      </section>
+      </div>
     </main>
+  );
+}
+
+function SidebarItem({ title, href }: { title: string; href: string }) {
+  return (
+    <Link
+      href={href}
+      style={{
+        display: "block",
+        padding: "10px 14px",
+        fontSize: 12,
+        color: "#8b949e",
+        borderBottom: "1px solid #161b22",
+        textDecoration: "none",
+      }}
+    >
+      {title}
+    </Link>
+  );
+}
+
+function Panel({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid #30363d",
+        background: "#161b22",
+      }}
+    >
+      <div
+        style={{
+          padding: "8px 12px",
+          borderBottom: "1px solid #30363d",
+          fontSize: 12,
+          color: "#8b949e",
+        }}
+      >
+        {title}
+      </div>
+      <div>{children}</div>
+    </div>
   );
 }

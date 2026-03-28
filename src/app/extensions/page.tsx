@@ -180,11 +180,15 @@ export default function ExtensionsPage() {
         return;
       }
       try {
-        const snapshot = await getDocs(collection(db, "users", user.uid, "extensions"));
+        const snapshot = await getDocs(
+          collection(db, "users", user.uid, "extensions"),
+        );
         setInstalledIds(snapshot.docs.map((docRef) => docRef.id));
       } catch (error) {
         setErrorMessage(
-          error instanceof Error ? error.message : "Unable to load installed extensions.",
+          error instanceof Error
+            ? error.message
+            : "Unable to load installed extensions.",
         );
       }
     };
@@ -196,7 +200,9 @@ export default function ExtensionsPage() {
     const needle = query.trim().toLowerCase();
     if (!needle) return EXTENSIONS;
     return EXTENSIONS.filter((ext) =>
-      `${ext.name} ${ext.publisher} ${ext.tags.join(" ")}`.toLowerCase().includes(needle),
+      `${ext.name} ${ext.publisher} ${ext.tags.join(" ")}`
+        .toLowerCase()
+        .includes(needle),
     );
   }, [query]);
 
@@ -226,7 +232,9 @@ export default function ExtensionsPage() {
       }
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Unable to update extension state.",
+        error instanceof Error
+          ? error.message
+          : "Unable to update extension state.",
       );
     }
 
@@ -234,128 +242,350 @@ export default function ExtensionsPage() {
   };
 
   return (
-    <main className="ml-12 min-h-screen bg-[#0a0f16] text-[#c9d1d9]">
-      <div
-        className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(88,166,255,0.12),transparent_35%),radial-gradient(circle_at_80%_10%,rgba(63,185,80,0.12),transparent_30%),radial-gradient(circle_at_50%_80%,rgba(248,81,73,0.12),transparent_30%)]"
-        aria-hidden
-      />
-
+    <main
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        minHeight: "100vh",
+        background: "#0d1117",
+        color: "#e6edf3",
+        fontFamily: "'JetBrains Mono','Fira Code',monospace",
+      }}
+    >
       <Navbar />
 
-      <section className="relative mx-auto max-w-6xl px-6 pb-12 pt-8">
-        <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-[#8b949e]">Extensions</p>
-            <h1 className="text-2xl font-semibold text-white">Install add-ons for your workspace</h1>
-            <p className="text-sm text-[#8b949e]">
-              Browse popular extensions and add them to your cloud workspace. Installs persist to your account.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 rounded-xl border border-[#1f2a38] bg-[#0f1622] px-3 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.45)]">
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search extensions, publishers, tags..."
-              className="w-72 bg-transparent text-sm text-white outline-none placeholder:text-[#6e7681]"
-            />
-            <span className="text-[11px] text-[#8b949e]">Enter</span>
-          </div>
-        </header>
+      {/* top bar */}
+      <div
+        style={{
+          height: 42,
+          borderBottom: "1px solid #21262d",
+          background: "#161b22",
+          display: "flex",
+          alignItems: "center",
+          padding: "0 16px",
+          fontSize: 12,
+          color: "#8b949e",
+        }}
+      >
+        extensions
+      </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-4">
-            {errorMessage ? (
-              <p className="text-sm text-red-400">{errorMessage}</p>
-            ) : null}
-            {filtered.map((ext) => {
-              const isInstalled = installedIds.includes(ext.id);
-              return (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "260px 1fr",
+          flex: 1,
+          overflow: "hidden",
+        }}
+      >
+        {/* sidebar */}
+        <div
+          style={{
+            borderRight: "1px solid #21262d",
+            background: "#0d1117",
+          }}
+        >
+          <SidebarItem title="Workspace" href="/workspace" />
+          <SidebarItem title="Profile" href="/profile" />
+          <SidebarItem title="Pipelines" href="/dockertest" />
+          <SidebarItem title="Dashboard" href="/" />
+        </div>
+
+        {/* content */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          {/* header */}
+          <div style={{ padding: 20, borderBottom: "1px solid #21262d" }}>
+            <div style={{ fontSize: 18, fontWeight: 600 }}>
+              Extensions catalog
+            </div>
+            <div style={{ fontSize: 12, color: "#8b949e", marginTop: 4 }}>
+              Browse and install add-ons; installs persist in Firestore.
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+              <div style={{ flex: 1, display: "flex", gap: 8, maxWidth: 520 }}>
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search extensions, publishers, tags..."
+                  style={{
+                    flex: 1,
+                    background: "#0d1117",
+                    color: "#e6edf3",
+                    border: "1px solid #30363d",
+                    padding: "8px 10px",
+                    fontSize: 12,
+                    borderRadius: 6,
+                    outline: "none",
+                  }}
+                />
                 <div
-                  key={ext.id}
-                  className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-5 shadow-[0_16px_50px_rgba(0,0,0,0.45)] transition hover:-translate-y-px hover:border-[#58a6ff]"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "0 10px",
+                    fontSize: 11,
+                    color: "#8b949e",
+                    border: "1px solid #30363d",
+                    borderRadius: 6,
+                    background: "#161b22",
+                  }}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <p className="text-sm uppercase tracking-wide text-[#8b949e]">{ext.publisher}</p>
-                      <h2 className="text-lg font-semibold text-white">{ext.name}</h2>
-                      <p className="text-sm text-[#8b949e]">{ext.description}</p>
-                      <div className="flex flex-wrap gap-2 text-[11px] text-[#8b949e]">
-                        <span className="rounded-full bg-[#0a0f16] px-2 py-1">{ext.installs} installs</span>
-                        <span className="rounded-full bg-[#0a0f16] px-2 py-1">★ {ext.rating}</span>
+                  Enter
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* panels */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "2fr 1fr",
+              gap: 16,
+              padding: 16,
+              overflow: "auto",
+            }}
+          >
+            <Panel title="Catalog">
+              {errorMessage ? (
+                <div style={{ padding: 12, fontSize: 12, color: "#f85149" }}>
+                  {errorMessage}
+                </div>
+              ) : null}
+
+              {filtered.map((ext, idx) => {
+                const isInstalled = installedIds.includes(ext.id);
+                return (
+                  <div
+                    key={ext.id}
+                    style={{
+                      padding: 12,
+                      borderBottom:
+                        idx === filtered.length - 1
+                          ? "none"
+                          : "1px solid #30363d",
+                      display: "flex",
+                      gap: 12,
+                      alignItems: "flex-start",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#8b949e",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {ext.publisher}
+                        </div>
+                        <Badge>{ext.rating}★</Badge>
+                        <Badge>{ext.installs} installs</Badge>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600 }}>
+                        {ext.name}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#8b949e" }}>
+                        {ext.description}
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 6,
+                          marginTop: 4,
+                        }}
+                      >
                         {ext.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded-full border border-[#30363d] bg-[#0a0f16] px-2 py-1"
-                          >
-                            {tag}
-                          </span>
+                          <Badge key={tag}>{tag}</Badge>
                         ))}
                       </div>
                     </div>
+
                     <button
                       type="button"
                       onClick={() => toggleInstall(ext.id)}
                       disabled={isSyncing}
-                      className={`rounded-md px-4 py-2 text-sm font-semibold transition shadow-[0_10px_25px_rgba(0,0,0,0.35)] disabled:opacity-60 ${
-                        isInstalled
-                          ? "bg-[#0a0f16] text-[#8b949e] border border-[#30363d] hover:border-[#f85149] hover:text-[#f85149]"
-                          : "bg-[#58a6ff] text-black hover:bg-[#79c0ff]"
-                      }`}
+                      style={{
+                        minWidth: 96,
+                        padding: "6px 12px",
+                        borderRadius: 6,
+                        border: isInstalled ? "1px solid #30363d" : "none",
+                        background: isInstalled ? "#0d1117" : "#58a6ff",
+                        color: isInstalled ? "#8b949e" : "#0d1117",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        boxShadow: "0 10px 25px rgba(0,0,0,0.35)",
+                        opacity: isSyncing ? 0.6 : 1,
+                      }}
                     >
                       {isInstalled ? "Uninstall" : "Install"}
                     </button>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </Panel>
 
-          <aside className="space-y-4">
-            <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-4 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-base font-semibold text-white">Installed</h3>
-                <span className="rounded-full bg-[#0a0f16] px-2 py-1 text-[11px] text-[#8b949e]">{installed.length}</span>
-              </div>
-              {installed.length === 0 ? (
-                <p className="text-sm text-[#8b949e]">No extensions installed yet.</p>
-              ) : (
-                <div className="space-y-3 text-sm">
-                  {installed.map((ext) => (
+            <div style={{ display: "grid", gap: 16 }}>
+              <Panel title={`Installed (${installed.length})`}>
+                {installed.length === 0 ? (
+                  <div style={{ padding: 12, fontSize: 12, color: "#8b949e" }}>
+                    No extensions installed yet.
+                  </div>
+                ) : (
+                  installed.map((ext, idx) => (
                     <div
                       key={ext.id}
-                      className="rounded-lg border border-[#30363d] bg-[#0a0f16] px-3 py-2"
+                      style={{
+                        padding: 12,
+                        borderBottom:
+                          idx === installed.length - 1
+                            ? "none"
+                            : "1px solid #30363d",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                      }}
                     >
-                      <p className="font-semibold text-white">{ext.name}</p>
-                      <p className="text-[11px] text-[#8b949e]">{ext.publisher}</p>
-                      <div className="mt-2 flex items-center justify-between text-[11px] text-[#8b949e]">
-                        <span>{ext.installs} installs</span>
-                        <button
-                          type="button"
-                          onClick={() => toggleInstall(ext.id)}
-                          className="text-[#f85149] hover:text-[#ff6b6b]"
-                          disabled={isSyncing}
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>
+                          {ext.name}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#8b949e" }}>
+                          {ext.publisher}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#8b949e",
+                            marginTop: 4,
+                          }}
                         >
-                          Remove
-                        </button>
+                          {ext.installs} installs
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleInstall(ext.id)}
+                        disabled={isSyncing}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 6,
+                          border: "1px solid #30363d",
+                          background: "#0d1117",
+                          color: "#f85149",
+                          fontSize: 11,
+                          cursor: "pointer",
+                          opacity: isSyncing ? 0.6 : 1,
+                        }}
+                      >
+                        Remove
+                      </button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  ))
+                )}
+              </Panel>
 
-            <div className="rounded-2xl border border-[#1f2a38] bg-[#0f1622] p-4 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-base font-semibold text-white">Recommended packs</h3>
-                <span className="rounded-full bg-[#0a0f16] px-2 py-1 text-[11px] text-[#8b949e]">Coming soon</span>
-              </div>
-              <p className="text-sm text-[#8b949e]">
-                Curated bundles for web, data, and infra will be available in a future release.
-              </p>
+              <Panel title="Recommended packs">
+                <div style={{ padding: 12, fontSize: 12, color: "#8b949e" }}>
+                  Curated bundles for web, data, and infra will be available in
+                  a future release.
+                </div>
+              </Panel>
             </div>
-          </aside>
+          </div>
         </div>
-      </section>
+      </div>
     </main>
+  );
+}
+
+function SidebarItem({ title, href }: { title: string; href: string }) {
+  return (
+    <Link
+      href={href}
+      style={{
+        display: "block",
+        padding: "10px 14px",
+        fontSize: 12,
+        color: "#8b949e",
+        borderBottom: "1px solid #161b22",
+        textDecoration: "none",
+      }}
+    >
+      {title}
+    </Link>
+  );
+}
+
+function Panel({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid #30363d",
+        background: "#161b22",
+      }}
+    >
+      <div
+        style={{
+          padding: "8px 12px",
+          borderBottom: "1px solid #30363d",
+          fontSize: 12,
+          color: "#8b949e",
+        }}
+      >
+        {title}
+      </div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "2px 8px",
+        fontSize: 11,
+        color: "#8b949e",
+        border: "1px solid #30363d",
+        borderRadius: 20,
+        background: "#0d1117",
+        gap: 4,
+      }}
+    >
+      {children}
+    </span>
   );
 }
