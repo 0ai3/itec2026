@@ -4,8 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:lan": "next dev --hostname 0.0.0.0 --port 3000",
     "collab:server": "node ./server/yjs-websocket-server.mjs",
     "dev:collab": "concurrently -n web,collab -c auto \"npm:dev\" \"npm:collab:server\"",
+    "dev:collab:lan": "concurrently -n web,collab -c auto \"npm:dev:lan\" \"npm:collab:server\"",
+    "dev:collab:lan:autoip": "sh ./scripts/dev-collab-lan-autoip.sh",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

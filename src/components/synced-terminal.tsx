@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { resolveYjsWsUrl } from '@/lib/yjs-ws-url'
 
 type Yjs = typeof import('yjs')
 type YWebsocket = typeof import('y-websocket')
@@ -194,7 +195,7 @@ export default function SyncedTerminal({
       const ydoc = new Y.Doc()
       ydocRef.current = ydoc
 
-      const wsUrl = process.env.NEXT_PUBLIC_YJS_WS_URL ?? 'ws://localhost:1234'
+      const wsUrl = resolveYjsWsUrl(process.env.NEXT_PUBLIC_YJS_WS_URL)
       const provider = new WebsocketProvider(wsUrl, transportRoomId, ydoc)
       providerRef.current = provider
 

@@ -55,6 +55,42 @@ Then open [http://localhost:3000](http://localhost:3000) in multiple tabs or bro
 
 By default, the editor connects to `ws://localhost:1234` and uses room `monaco-room`.
 
+### Run over LAN (other computer in same network)
+
+1. Find your host machine IP (example on macOS):
+
+```bash
+ipconfig getifaddr en0
+```
+
+2. Set WebSocket URL to your host IP:
+
+```bash
+NEXT_PUBLIC_YJS_WS_URL=ws://<YOUR_HOST_IP>:1234
+```
+
+3. Run app + collab server bound to network:
+
+```bash
+npm run dev:collab:lan
+```
+
+Or use automatic local IP detection on macOS:
+
+```bash
+npm run dev:collab:lan:autoip
+```
+
+The script now validates detected IP and prints it before startup. If detection fails, it stops with a clear error so you can set `NEXT_PUBLIC_YJS_WS_URL` manually.
+It detects the IP from the active default-route interface first, then falls back to `en0`/`en1`.
+Implementation note: this command runs `scripts/dev-collab-lan-autoip.sh`.
+
+4. Open from another computer:
+
+```bash
+http://<YOUR_HOST_IP>:3000
+```
+
 ## AI code completions (Groq)
 
 The Monaco editor includes inline AI completions powered by Groq via a server route (`/api/ai-complete`).

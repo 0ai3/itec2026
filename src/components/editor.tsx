@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { resolveYjsWsUrl } from '@/lib/yjs-ws-url'
 
 type Monaco = typeof import('monaco-editor')
 type Yjs = typeof import('yjs')
@@ -749,7 +750,7 @@ export default function Editor({
 			aiMeta.observe(syncAiRangesFromMeta)
 			removeAiMetaListener = () => aiMeta.unobserve(syncAiRangesFromMeta)
 
-			const wsUrl = process.env.NEXT_PUBLIC_YJS_WS_URL ?? 'ws://localhost:1234'
+			const wsUrl = resolveYjsWsUrl(process.env.NEXT_PUBLIC_YJS_WS_URL)
 			const provider = new WebsocketProvider(wsUrl, transportRoomId, ydoc)
 			providerRef.current = provider
 			setConnectionStatus(provider.wsconnected ? 'connected' : provider.wsconnecting ? 'connecting' : 'disconnected')
@@ -989,7 +990,7 @@ export default function Editor({
 			<p style={{ marginBottom: 8 }}>Room: <strong>{roomId}</strong></p>
 			<p style={{ marginBottom: 8 }}>Transport room: <strong>{transportRoomId}</strong></p>
 			<p style={{ marginBottom: 12 }}>
-				WebSocket: <strong>{process.env.NEXT_PUBLIC_YJS_WS_URL ?? 'ws://localhost:1234'}</strong> | Status: <strong>{connectionStatus}</strong>
+				WebSocket: <strong>{resolveYjsWsUrl(process.env.NEXT_PUBLIC_YJS_WS_URL)}</strong> | Status: <strong>{connectionStatus}</strong>
 			</p>
 			<button
 				style={{ marginBottom: 16, padding: '8px 12px', borderRadius: 6, border: '1px solid #555', background: '#6b46c1', color: '#fff', cursor: 'pointer' }}
