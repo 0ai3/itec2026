@@ -28,6 +28,8 @@ declare global {
 type EditorProps = {
     roomId?: string
     filePath?: string | null
+    userId?: string | null
+    userName?: string | null
     language?: string
     initialCode?: string
     onCodeChange?: (code: string) => void
@@ -46,8 +48,17 @@ type BlockToolbar = {
     rangeId: string
 }
 
+type RemoteCursorState = {
+    lineNumber: number
+    column: number
+}
+
 function generateId() {
     return Math.random().toString(36).slice(2, 10)
+}
+
+function normalizeLineEndings(value: string) {
+    return value.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
 const setYTextValue = (yText: import('yjs').Text, value: string) => {
@@ -60,6 +71,8 @@ const setYTextValue = (yText: import('yjs').Text, value: string) => {
 export default function Editor({
     roomId = 'monaco-room',
     filePath = null,
+    userId = null,
+    userName = null,
     language = 'typescript',
     initialCode = '',
     onCodeChange,
@@ -78,25 +91,37 @@ export default function Editor({
     const replaceContentSourceRef = useRef<EditorProps['replaceContentSource']>(replaceContentSource)
     const initialAiRangesRef = useRef<AiRange[]>(initialAiRanges ?? [])
     const onAiRangesChangeRef = useRef<EditorProps['onAiRangesChange']>(onAiRangesChange)
+    const userIdRef = useRef(userId)
+    const userNameRef = useRef(userName)
     const appliedAiRangesTokenRef = useRef<number | null>(null)
     const aiRangesRef = useRef<AiRange[]>([])
+    const lineAuthorsRef = useRef<Record<number, string>>({})
     const aiDecorationIdsRef = useRef<string[]>([])
     const aiMetaRef = useRef<import('yjs').Map<string> | null>(null)
     const lastBroadcastAiRangesRef = useRef('')
+    const lastBroadcastLineAuthorsRef = useRef('')
     const pendingRenderRangesRef = useRef<AiRange[] | null>(null)
     const renderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const appliedReplaceTokenRef = useRef<number | null>(null)
-    const completionAbortRef = useRef<AbortController | null>(null)
+    const completionRequestSeqRef = useRef(0)
     const monacoRef = useRef<Monaco | null>(null)
     const pendingInlineCompletionRef = useRef<string | null>(null)
+    const pendingEditAuthorRef = useRef<string | null>(null)
+    const renderRemoteCursorsRef = useRef<(() => void) | null>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null)
     const ydocRef = useRef<import('yjs').Doc | null>(null)
     const providerRef = useRef<import('y-websocket').WebsocketProvider | null>(null)
     const bindingRef = useRef<import('y-monaco').MonacoBinding | null>(null)
+    const remoteCursorWidgetsRef = useRef<Map<number, {
+        widget: import('monaco-editor').editor.IContentWidget
+        element: HTMLDivElement
+        position: RemoteCursorState
+    }>>(new Map())
 
     const [connectionStatus, setConnectionStatus] = useState('connecting')
     const [isEditorEmpty, setIsEditorEmpty] = useState(initialCode.length === 0)
+    const [hoverAttribution, setHoverAttribution] = useState<{ x: number; y: number; text: string } | null>(null)
 
     // Selection popup (Pentru Fix Code)
     const [selectionPopup, setSelectionPopup] = useState<{
@@ -144,6 +169,183 @@ export default function Editor({
     useEffect(() => { replaceContentSourceRef.current = replaceContentSource }, [replaceContentSource])
     useEffect(() => { initialAiRangesRef.current = initialAiRanges ?? [] }, [initialAiRanges])
     useEffect(() => { onAiRangesChangeRef.current = onAiRangesChange }, [onAiRangesChange])
+    useEffect(() => { userIdRef.current = userId }, [userId])
+    useEffect(() => { userNameRef.current = userName }, [userName])
+
+    useEffect(() => {
+        const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+            const reason = event.reason
+            const text = typeof reason === 'string'
+                ? reason
+                : reason && typeof reason === 'object' && 'message' in reason
+                    ? String((reason as { message?: unknown }).message ?? '')
+                    : ''
+
+            if (text.toLowerCase().includes('canceled')) {
+                event.preventDefault()
+            }
+        }
+
+        window.addEventListener('unhandledrejection', onUnhandledRejection)
+        return () => {
+            window.removeEventListener('unhandledrejection', onUnhandledRejection)
+        }
+    }, [])
+
+    const hashToColor = useCallback((seed: string) => {
+        let hash = 0
+        for (let index = 0; index < seed.length; index += 1) {
+            hash = (hash << 5) - hash + seed.charCodeAt(index)
+            hash |= 0
+        }
+        const hue = Math.abs(hash) % 360
+        return `hsl(${hue} 72% 58%)`
+    }, [])
+
+    const getCurrentUserLabel = useCallback(() => {
+        const fromName = userNameRef.current?.trim()
+        if (fromName) return fromName
+        const fromId = userIdRef.current?.trim()
+        if (fromId) return `User-${fromId.slice(0, 6)}`
+        return 'Anonymous'
+    }, [])
+
+    const getAiAuthorLabel = useCallback(() => {
+        return `AI (${getCurrentUserLabel()})`
+    }, [getCurrentUserLabel])
+
+    const runWithAttribution = useCallback((author: string, fn: () => void) => {
+        pendingEditAuthorRef.current = author
+        try {
+            fn()
+        } finally {
+            queueMicrotask(() => {
+                if (pendingEditAuthorRef.current === author) {
+                    pendingEditAuthorRef.current = null
+                }
+            })
+        }
+    }, [])
+
+    const parseLineAuthorsPayload = useCallback((payload: string): Record<number, string> | null => {
+        try {
+            const parsed = JSON.parse(payload) as unknown
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                return null
+            }
+
+            const next: Record<number, string> = {}
+            for (const [rawLine, rawAuthor] of Object.entries(parsed as Record<string, unknown>)) {
+                const lineNumber = Number(rawLine)
+                if (!Number.isFinite(lineNumber) || lineNumber < 1) continue
+                if (typeof rawAuthor !== 'string' || !rawAuthor.trim()) continue
+                next[Math.floor(lineNumber)] = rawAuthor.trim()
+            }
+
+            return next
+        } catch {
+            return null
+        }
+    }, [])
+
+    const applyLineAuthors = useCallback((lineAuthors: Record<number, string>, options?: { broadcast?: boolean }) => {
+        lineAuthorsRef.current = lineAuthors
+
+        if (options?.broadcast === false) return
+
+        const payload = JSON.stringify(lineAuthors)
+        if (payload === lastBroadcastLineAuthorsRef.current) return
+        lastBroadcastLineAuthorsRef.current = payload
+        aiMetaRef.current?.set('lineAuthors', payload)
+    }, [])
+
+    const upsertRemoteCursorWidget = useCallback((
+        monaco: Monaco,
+        editor: import('monaco-editor').editor.IStandaloneCodeEditor,
+        clientId: number,
+        state: { name: string; color: string; cursor: RemoteCursorState }
+    ) => {
+        const existing = remoteCursorWidgetsRef.current.get(clientId)
+        if (existing) {
+            existing.position.lineNumber = state.cursor.lineNumber
+            existing.position.column = state.cursor.column
+            existing.element.style.borderLeftColor = state.color
+            const label = existing.element.querySelector('[data-role="cursor-label"]') as HTMLDivElement | null
+            if (label) {
+                label.textContent = state.name
+                label.style.background = state.color
+            }
+            editor.layoutContentWidget(existing.widget)
+            return
+        }
+
+        const element = document.createElement('div')
+        element.style.position = 'relative'
+        element.style.pointerEvents = 'none'
+        element.style.height = '18px'
+        element.style.marginTop = '-2px'
+        element.style.borderLeft = `2px solid ${state.color}`
+
+        const label = document.createElement('div')
+        label.setAttribute('data-role', 'cursor-label')
+        label.textContent = state.name
+        label.style.position = 'absolute'
+        label.style.left = '4px'
+        label.style.top = '-18px'
+        label.style.padding = '1px 6px'
+        label.style.borderRadius = '10px'
+        label.style.fontSize = '10px'
+        label.style.lineHeight = '1.2'
+        label.style.whiteSpace = 'nowrap'
+        label.style.color = '#ffffff'
+        label.style.background = state.color
+        label.style.boxShadow = '0 2px 8px rgba(0,0,0,0.35)'
+
+        element.appendChild(label)
+
+        const widgetState = {
+            position: { ...state.cursor },
+        }
+
+        const widget: import('monaco-editor').editor.IContentWidget = {
+            getId: () => `remote-cursor-widget-${clientId}`,
+            getDomNode: () => element,
+            getPosition: () => ({
+                position: new monaco.Position(widgetState.position.lineNumber, widgetState.position.column),
+                preference: [
+                    monaco.editor.ContentWidgetPositionPreference.EXACT,
+                ],
+            }),
+        }
+
+        editor.addContentWidget(widget)
+        remoteCursorWidgetsRef.current.set(clientId, {
+            widget,
+            element,
+            position: widgetState.position,
+        })
+    }, [])
+
+    const removeRemoteCursorWidget = useCallback((
+        editor: import('monaco-editor').editor.IStandaloneCodeEditor,
+        clientId: number
+    ) => {
+        const existing = remoteCursorWidgetsRef.current.get(clientId)
+        if (!existing) return
+        editor.removeContentWidget(existing.widget)
+        remoteCursorWidgetsRef.current.delete(clientId)
+    }, [])
+
+    const clearRemoteCursorWidgets = useCallback((editor?: import('monaco-editor').editor.IStandaloneCodeEditor | null) => {
+        const activeEditor = editor ?? editorRef.current
+        if (!activeEditor) {
+            remoteCursorWidgetsRef.current.clear()
+            return
+        }
+        for (const [clientId] of remoteCursorWidgetsRef.current) {
+            removeRemoteCursorWidget(activeEditor, clientId)
+        }
+    }, [removeRemoteCursorWidget])
 
     const normalizeRanges = useCallback((ranges: AiRange[]) => {
         return ranges
@@ -304,7 +506,9 @@ export default function Editor({
             const fixedCode = (data.completion ?? '').replace(/^```[a-zA-Z]*\n?|```$/g, '').trimEnd()
             if (!fixedCode) return
 
-            model.pushEditOperations([], [{ range: selectedRange, text: fixedCode }], () => null)
+            runWithAttribution(getAiAuthorLabel(), () => {
+                model.pushEditOperations([], [{ range: selectedRange, text: fixedCode }], () => null)
+            })
 
             const lineCount = fixedCode.split('\n').length
             const endLineNumber = selectedRange.startLineNumber + lineCount - 1
@@ -320,7 +524,7 @@ export default function Editor({
                 originalText: selectedText,
             })
         } catch { /* ignore */ }
-    }, [language, addAiRange])
+    }, [language, filePath, addAiRange, getAiAuthorLabel, runWithAttribution])
 
     const handlePopupAction = useCallback(async (action: 'fix' | 'prompt') => {
         const editor = editorRef.current
@@ -346,7 +550,9 @@ export default function Editor({
             if (!fixed) return
 
             const originalText = model.getValueInRange(popup.selectedRange)
-            model.pushEditOperations([], [{ range: popup.selectedRange, text: fixed }], () => null)
+            runWithAttribution(getAiAuthorLabel(), () => {
+                model.pushEditOperations([], [{ range: popup.selectedRange, text: fixed }], () => null)
+            })
 
             const lineCount = fixed.split('\n').length
             const endLineNumber = popup.selectedRange.startLineNumber + lineCount - 1
@@ -366,7 +572,7 @@ export default function Editor({
             setSelectionPopup(null)
             setPopupPrompt('')
         }
-    }, [language, addAiRange])
+    }, [language, filePath, addAiRange, getAiAuthorLabel, runWithAttribution])
 
     // --- FUNCȚIA PENTRU GENERARE NOTION-STYLE (Ctrl+K) ---
     const handleGenerateAction = useCallback(async () => {
@@ -400,10 +606,12 @@ export default function Editor({
 
             const rangeToInsert = new monaco.Range(popup.lineNumber, 1, popup.lineNumber, 1)
             
-            model.pushEditOperations([], [{ 
-                range: rangeToInsert, 
-                text: generatedCode + '\n' 
-            }], () => null)
+            runWithAttribution(getAiAuthorLabel(), () => {
+                model.pushEditOperations([], [{
+                    range: rangeToInsert,
+                    text: generatedCode + '\n'
+                }], () => null)
+            })
 
             const lineCount = generatedCode.split('\n').length
             const endLineNumber = popup.lineNumber + lineCount - 1
@@ -425,7 +633,7 @@ export default function Editor({
             setGeneratePrompt('')
             editor.focus()
         }
-    }, [language, addAiRange])
+    }, [language, filePath, addAiRange, getAiAuthorLabel, runWithAttribution])
 
 
     // Drag: move AI block up/down
@@ -538,11 +746,23 @@ export default function Editor({
         const model = editor?.getModel()
         if (!editor || !model) return
 
-        const nextValue = replaceContentValueRef.current ?? ''
+        const yText = ydocRef.current?.getText('monaco')
+        const replaceSource = replaceContentSourceRef.current
+        if (replaceSource === 'user' && yText) {
+            const sharedValue = yText.toString()
+            if (model.getValue() !== sharedValue) {
+                model.setValue(sharedValue)
+                setIsEditorEmpty(sharedValue.length === 0)
+                onCodeChangeRef.current?.(sharedValue)
+            }
+            return
+        }
+
+        const nextValue = normalizeLineEndings(replaceContentValueRef.current ?? '')
         model.setValue(nextValue)
+        model.setEOL(monacoRef.current?.editor.EndOfLineSequence.LF ?? 0)
         setIsEditorEmpty(nextValue.length === 0)
 
-        const yText = ydocRef.current?.getText('monaco')
         if (yText && yText.toString() !== nextValue) {
             setYTextValue(yText, nextValue)
         }
@@ -553,8 +773,15 @@ export default function Editor({
             const endLineNumber = model.getLineCount()
             const endColumn = model.getLineMaxColumn(endLineNumber)
             addAiRange({ startLineNumber: 1, startColumn: 1, endLineNumber, endColumn, originalText: '' })
+
+            const aiAuthor = getAiAuthorLabel()
+            const nextLineAuthors: Record<number, string> = {}
+            for (let line = 1; line <= endLineNumber; line += 1) {
+                nextLineAuthors[line] = aiAuthor
+            }
+            applyLineAuthors(nextLineAuthors)
         }
-    }, [applyAiRanges, replaceContentToken, addAiRange])
+    }, [applyAiRanges, replaceContentToken, addAiRange, getAiAuthorLabel, applyLineAuthors])
 
     useEffect(() => {
         if (typeof aiRangesToken !== 'number') return
@@ -572,10 +799,14 @@ export default function Editor({
         let removeInlineProvider: (() => void) | null = null
         let removeFixMacroAction: (() => void) | null = null
         let removeGenerateMacroAction: (() => void) | null = null // <-- Noua curățare
+        let removeHoverProvider: (() => void) | null = null
         let removeSelectionListener: (() => void) | null = null
         let removeClickListener: (() => void) | null = null
+        let removeAwarenessListener: (() => void) | null = null
+        let removeMouseMoveListener: (() => void) | null = null
+        let removeMouseLeaveListener: (() => void) | null = null
         let initialSeedApplied = false
-        let fallbackSeedTimer: ReturnType<typeof setTimeout> | null = null
+        let initialSeedAttempted = false
 
         const setup = async () => {
             if (!containerRef.current || editorRef.current) return
@@ -605,8 +836,14 @@ export default function Editor({
                 minimap: { enabled: false },
                 inlineSuggest: { enabled: true },
                 quickSuggestions: { other: true, comments: false, strings: true },
+                hover: { enabled: true },
                 automaticLayout: true,
             })
+
+            const initialModel = editorRef.current.getModel()
+            if (initialModel) {
+                initialModel.setEOL(monaco.editor.EndOfLineSequence.LF)
+            }
 
             // Inject AI block styles
             const styleId = 'ai-block-styles'
@@ -631,7 +868,7 @@ export default function Editor({
             }
 
             const inlineProvider = monaco.languages.registerInlineCompletionsProvider(language, {
-                provideInlineCompletions: async (model, position) => {
+                provideInlineCompletions: async (model, position, _context, token) => {
                     const editor = editorRef.current
                     if (!editor) return { items: [] }
 
@@ -641,17 +878,18 @@ export default function Editor({
                     if (prefix.trim().length < 2) return { items: [] }
                     const suffix = model.getValueInRange(afterRange)
 
-                    completionAbortRef.current?.abort()
-                    const abortController = new AbortController()
-                    completionAbortRef.current = abortController
+                    const requestSeq = completionRequestSeqRef.current + 1
+                    completionRequestSeqRef.current = requestSeq
 
                     try {
+                        if (token.isCancellationRequested) return { items: [] }
                         const response = await fetch('/api/ai-complete', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ language, filePath, prefix, suffix }),
-                            signal: abortController.signal,
                         })
+                        if (token.isCancellationRequested) return { items: [] }
+                        if (requestSeq !== completionRequestSeqRef.current) return { items: [] }
                         if (!response.ok) return { items: [] }
                         const data = (await response.json()) as { completion?: string }
                         const completion = (data.completion ?? '').trimEnd()
@@ -667,9 +905,20 @@ export default function Editor({
                         return { items: [] }
                     }
                 },
-                disposeInlineCompletions: () => { completionAbortRef.current?.abort() },
+                disposeInlineCompletions: () => { },
             })
             removeInlineProvider = () => inlineProvider.dispose()
+
+            const hoverProvider = monaco.languages.registerHoverProvider(language, {
+                provideHover: (_model, position) => {
+                    const author = lineAuthorsRef.current[position.lineNumber]
+                    return {
+                        range: new monaco.Range(position.lineNumber, 1, position.lineNumber, 1),
+                        contents: [{ value: `Modified by: ${author ?? 'Unknown'}` }],
+                    }
+                },
+            })
+            removeHoverProvider = () => hoverProvider.dispose()
 
             const fixMacroAction = editorRef.current.addAction({
                 id: 'ai-fix-selection',
@@ -789,6 +1038,7 @@ export default function Editor({
             const contentDisposable = editorRef.current.onDidChangeModelContent((event) => {
                 const editor = editorRef.current
                 const model = editor?.getModel()
+                let eventAuthorOverride: string | null = null
                 if (editor && model && pendingInlineCompletionRef.current) {
                     const accepted = event.changes.find(
                         (change) =>
@@ -797,6 +1047,7 @@ export default function Editor({
                             change.text === pendingInlineCompletionRef.current
                     )
                     if (accepted) {
+                        eventAuthorOverride = getAiAuthorLabel()
                         const start = model.getPositionAt(accepted.rangeOffset)
                         const end = model.getPositionAt(accepted.rangeOffset + accepted.text.length)
                         addAiRange({
@@ -810,6 +1061,25 @@ export default function Editor({
                 }
                 onCodeChangeRef.current?.(editorRef.current?.getValue() ?? '')
                 setIsEditorEmpty((editorRef.current?.getValue() ?? '').length === 0)
+                requestAnimationFrame(() => {
+                    renderRemoteCursorsRef.current?.()
+                })
+
+                if (!editor?.hasTextFocus()) {
+                    return
+                }
+
+                const nextLineAuthors = { ...lineAuthorsRef.current }
+                const author = eventAuthorOverride ?? pendingEditAuthorRef.current ?? getCurrentUserLabel()
+                for (const change of event.changes) {
+                    const insertedLineCount = Math.max(1, change.text.split('\n').length)
+                    const startLine = Math.max(1, change.range.startLineNumber)
+                    const endLine = Math.max(startLine, startLine + insertedLineCount - 1)
+                    for (let line = startLine; line <= endLine; line += 1) {
+                        nextLineAuthors[line] = author
+                    }
+                }
+                applyLineAuthors(nextLineAuthors)
             })
             removeContentListener = () => contentDisposable.dispose()
 
@@ -854,8 +1124,23 @@ export default function Editor({
                 return true
             }
 
-            aiMeta.observe(syncAiRangesFromMeta)
-            removeAiMetaListener = () => aiMeta.unobserve(syncAiRangesFromMeta)
+            const syncLineAuthorsFromMeta = () => {
+                const payload = aiMeta.get('lineAuthors')
+                if (typeof payload !== 'string') return false
+                lastBroadcastLineAuthorsRef.current = payload
+                const parsed = parseLineAuthorsPayload(payload)
+                if (!parsed) return false
+                applyLineAuthors(parsed, { broadcast: false })
+                return true
+            }
+
+            const syncMetaFromY = () => {
+                syncAiRangesFromMeta()
+                syncLineAuthorsFromMeta()
+            }
+
+            aiMeta.observe(syncMetaFromY)
+            removeAiMetaListener = () => aiMeta.unobserve(syncMetaFromY)
 
             const wsUrl = resolveYjsWsUrl(process.env.NEXT_PUBLIC_YJS_WS_URL)
             const provider = new WebsocketProvider(wsUrl, transportRoomId, ydoc)
@@ -867,42 +1152,135 @@ export default function Editor({
             removeStatusListener = () => provider.off('status', updateStatus)
 
             const yText = ydoc.getText('monaco')
-
-            fallbackSeedTimer = setTimeout(() => {
-                const editor = editorRef.current
-                const model = editor?.getModel()
-                if (!editor || !model) return
-                if (provider.wsconnected || provider.wsconnecting) return
-                if (model.getValue().length > 0) return
-                if (!initialCodeRef.current) return
-                model.setValue(initialCodeRef.current)
-                setIsEditorEmpty(initialCodeRef.current.length === 0)
-                onCodeChangeRef.current?.(initialCodeRef.current)
-            }, 1200)
+            const awareness = provider.awareness
 
             const updateSync = (isSynced: boolean) => {
                 if (isSynced) {
                     setConnectionStatus('connected')
-                    if (!initialSeedApplied && yText.toString().trim().length === 0 && initialCodeRef.current) {
-                        yText.insert(0, initialCodeRef.current)
-                        initialSeedApplied = true
+                    if (!initialSeedApplied && !initialSeedAttempted && yText.length === 0 && initialCodeRef.current) {
+                        initialSeedAttempted = true
+
+                        const clientIds = Array.from(awareness.getStates().keys())
+                        clientIds.push(awareness.clientID)
+                        const leaderClientId = Math.min(...clientIds)
+
+                        if (leaderClientId === awareness.clientID) {
+                            yText.insert(0, normalizeLineEndings(initialCodeRef.current))
+                            initialSeedApplied = true
+                        }
                     }
                     const pulled = syncAiRangesFromMeta()
                     if (!pulled && initialAiRangesRef.current.length > 0) {
                         applyAiRanges(initialAiRangesRef.current)
                     }
+                    syncLineAuthorsFromMeta()
                 }
             }
             provider.on('sync', updateSync)
             removeSyncListener = () => provider.off('sync', updateSync)
 
-            provider.awareness.setLocalStateField('user', {
-                name: `User-${Math.floor(Math.random() * 1000)}`,
-                color: '#60a5fa',
+            const renderRemoteCursors = () => {
+                const editor = editorRef.current
+                if (!editor) return
+                const model = editor.getModel()
+                if (!model) return
+
+                const localClientId = awareness.clientID
+                const activeRemoteClientIds = new Set<number>()
+
+                awareness.getStates().forEach((state, clientId) => {
+                    if (clientId === localClientId) return
+                    const clientState = state as {
+                        user?: { name?: string; color?: string }
+                        selection?: { anchor?: unknown; head?: unknown }
+                    }
+
+                    if (!clientState.selection?.anchor || !clientState.selection?.head) {
+                        removeRemoteCursorWidget(editor, clientId)
+                        return
+                    }
+
+                    const anchorAbs = Y.createAbsolutePositionFromRelativePosition(
+                        clientState.selection.anchor as import('yjs').RelativePosition,
+                        ydoc,
+                    )
+                    const headAbs = Y.createAbsolutePositionFromRelativePosition(
+                        clientState.selection.head as import('yjs').RelativePosition,
+                        ydoc,
+                    )
+                    if (!anchorAbs || !headAbs || anchorAbs.type !== yText || headAbs.type !== yText) {
+                        removeRemoteCursorWidget(editor, clientId)
+                        return
+                    }
+
+                    const headPos = model.getPositionAt(headAbs.index)
+                    if (!headPos) {
+                        removeRemoteCursorWidget(editor, clientId)
+                        return
+                    }
+
+                    const name = clientState.user?.name?.trim() || `User-${String(clientId).slice(-4)}`
+                    const color = clientState.user?.color?.trim() || hashToColor(String(clientId))
+                    upsertRemoteCursorWidget(monaco, editor, clientId, {
+                        name,
+                        color,
+                        cursor: {
+                            lineNumber: Math.max(1, Math.floor(headPos.lineNumber)),
+                            column: Math.max(1, Math.floor(headPos.column)),
+                        },
+                    })
+                    activeRemoteClientIds.add(clientId)
+                })
+
+                for (const [clientId] of remoteCursorWidgetsRef.current) {
+                    if (!activeRemoteClientIds.has(clientId)) {
+                        removeRemoteCursorWidget(editor, clientId)
+                    }
+                }
+            }
+            renderRemoteCursorsRef.current = renderRemoteCursors
+
+            const onAwarenessChange = () => {
+                renderRemoteCursors()
+            }
+
+            awareness.on('change', onAwarenessChange)
+            removeAwarenessListener = () => awareness.off('change', onAwarenessChange)
+
+            const mouseMoveDisposable = editorRef.current.onMouseMove((event) => {
+                const lineNumber = event.target.position?.lineNumber
+                if (!lineNumber) {
+                    setHoverAttribution(null)
+                    return
+                }
+                const author = lineAuthorsRef.current[lineNumber] ?? 'Unknown'
+                setHoverAttribution({
+                    x: event.event.browserEvent.clientX,
+                    y: event.event.browserEvent.clientY,
+                    text: `Modified by: ${author}`,
+                })
             })
+            removeMouseMoveListener = () => mouseMoveDisposable.dispose()
+
+            const mouseLeaveDisposable = editorRef.current.onMouseLeave(() => {
+                setHoverAttribution(null)
+            })
+            removeMouseLeaveListener = () => mouseLeaveDisposable.dispose()
+
+            const identitySeed = userIdRef.current?.trim() || userNameRef.current?.trim() || transportRoomId
+            provider.awareness.setLocalStateField('user', {
+                name: getCurrentUserLabel(),
+                color: hashToColor(identitySeed),
+            })
+            renderRemoteCursors()
 
             const model = editorRef.current.getModel()
             if (model) {
+                const sharedValue = normalizeLineEndings(yText.toString())
+                if (model.getValue() !== sharedValue) {
+                    model.setValue(sharedValue)
+                }
+                model.setEOL(monaco.editor.EndOfLineSequence.LF)
                 bindingRef.current = new MonacoBinding(yText, model, new Set([editorRef.current]), provider.awareness)
             }
         }
@@ -918,20 +1296,23 @@ export default function Editor({
             removeFixMacroAction?.()
             removeGenerateMacroAction?.() // Curățăm actiunea de Generate
             removeInlineProvider?.()
+            removeHoverProvider?.()
             removeSelectionListener?.()
             removeClickListener?.()
-            if (fallbackSeedTimer) {
-                clearTimeout(fallbackSeedTimer)
-                fallbackSeedTimer = null
-            }
-            completionAbortRef.current?.abort()
-            completionAbortRef.current = null
+            removeAwarenessListener?.()
+            removeMouseMoveListener?.()
+            removeMouseLeaveListener?.()
             pendingInlineCompletionRef.current = null
             monacoRef.current = null
             if (renderTimerRef.current) { clearTimeout(renderTimerRef.current); renderTimerRef.current = null }
             pendingRenderRangesRef.current = null
             aiMetaRef.current = null
             lastBroadcastAiRangesRef.current = ''
+            lastBroadcastLineAuthorsRef.current = ''
+            lineAuthorsRef.current = {}
+            renderRemoteCursorsRef.current = null
+            setHoverAttribution(null)
+            clearRemoteCursorWidgets(editorRef.current)
             bindingRef.current?.destroy(); bindingRef.current = null
             providerRef.current?.destroy(); providerRef.current = null
             ydocRef.current?.destroy(); ydocRef.current = null
@@ -943,7 +1324,7 @@ export default function Editor({
             } catch { }
             editorRef.current = null
         }
-    }, [transportRoomId, language, addAiRange, applyAiRanges, fixSelectedCode, handleGenerateAction])
+    }, [transportRoomId, language, filePath, addAiRange, applyAiRanges, fixSelectedCode, handleGenerateAction, getCurrentUserLabel, getAiAuthorLabel, hashToColor, parseLineAuthorsPayload, applyLineAuthors, upsertRemoteCursorWidget, removeRemoteCursorWidget, clearRemoteCursorWidgets])
 
     // --- JSX-ul pentru Pop-up-uri ---
     const selectionPopupJsx = selectionPopup && (
@@ -1171,6 +1552,26 @@ export default function Editor({
                 {selectionPopupJsx}
                 {generatePopupJsx}
                 {blockToolbarJsx}
+                {hoverAttribution && (
+                    <div
+                        style={{
+                            position: 'fixed',
+                            left: hoverAttribution.x + 12,
+                            top: hoverAttribution.y + 12,
+                            zIndex: 10001,
+                            background: '#161b22',
+                            border: '1px solid #30363d',
+                            borderRadius: 6,
+                            padding: '6px 8px',
+                            color: '#c9d1d9',
+                            fontSize: 11,
+                            pointerEvents: 'none',
+                            boxShadow: '0 6px 20px rgba(0,0,0,0.45)',
+                        }}
+                    >
+                        {hoverAttribution.text}
+                    </div>
+                )}
             </div>
         )
     }
@@ -1213,6 +1614,26 @@ export default function Editor({
             {selectionPopupJsx}
             {generatePopupJsx}
             {blockToolbarJsx}
+            {hoverAttribution && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        left: hoverAttribution.x + 12,
+                        top: hoverAttribution.y + 12,
+                        zIndex: 10001,
+                        background: '#161b22',
+                        border: '1px solid #30363d',
+                        borderRadius: 6,
+                        padding: '6px 8px',
+                        color: '#c9d1d9',
+                        fontSize: 11,
+                        pointerEvents: 'none',
+                        boxShadow: '0 6px 20px rgba(0,0,0,0.45)',
+                    }}
+                >
+                    {hoverAttribution.text}
+                </div>
+            )}
         </main>
     )
 }

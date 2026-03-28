@@ -2725,6 +2725,9 @@ export default function RepoEditorPage() {
                   <Editor
                     key={effectiveEditorKey}
                     roomId={effectiveEditorRoom}
+                    filePath={selectedFilePath}
+                    userId={user?.uid ?? null}
+                    userName={user?.displayName ?? user?.email ?? null}
                     language={editorLanguage}
                     initialCode={selectedFileContent}
                     onCodeChange={(code) =>

@@ -6,6 +6,38 @@ import { onAuthStateChanged } from "firebase/auth";
 import { useEffect, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
 
+const LINES = [
+  { t: "prompt", text: "$ git clone https://itecify.dev/sandbox-api" },
+  { t: "success", text: "Cloning into 'sandbox-api'... done." },
+  { t: "prompt", text: "$ itecify session start --collab --ai" },
+  { t: "info", text: "↗ Session #f3a9 created" },
+  { t: "info", text: "↗ Ana joined (cursor #1)" },
+  { t: "info", text: "↗ Radu joined (cursor #2)" },
+  { t: "ai", text: "✦ AI Agent connected · model: gpt-4o" },
+  { t: "dim", text: "" },
+  { t: "prompt", text: "$ docker build --lang python:3.11" },
+  { t: "warn", text: "⚠ Scanning for vulnerabilities..." },
+  { t: "success", text: "✓ No critical CVEs found" },
+  { t: "success", text: "✓ Container spawned in 1.4s · 128mb" },
+  { t: "dim", text: "" },
+  { t: "ai", text: "✦ AI generated 14 lines in routes.py" },
+  { t: "info", text: "  → Ana typed '14141414'" },
+  { t: "warn", text: "  → Radu rejected block #2 (hallucination)" },
+  { t: "success", text: "✓ Tests passed · exit 0 · 2.3s" },
+  { t: "dim", text: "" },
+  { t: "caret", text: "$ " },
+] as const;
+
+const COLOR_MAP: Record<string, string> = {
+  prompt: "#8b949e",
+  success: "#3fb950",
+  info: "#58a6ff",
+  warn: "#e3b341",
+  ai: "#bc8cff",
+  dim: "#2d333b",
+  err: "#f85149",
+};
+
 export default function CharacterLandingPage() {
   const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);
@@ -34,45 +66,10 @@ export default function CharacterLandingPage() {
     return unsubscribe;
   }, [router]);
 
-  if (!authChecked) {
-    return null;
-  }
-
-  // ── TERMINAL LINES
-  const LINES = [
-    { t: "prompt", text: "$ git clone https://itecify.dev/sandbox-api" },
-    { t: "success", text: "Cloning into 'sandbox-api'... done." },
-    { t: "prompt", text: "$ itecify session start --collab --ai" },
-    { t: "info", text: "↗ Session #f3a9 created" },
-    { t: "info", text: "↗ Ana joined (cursor #1)" },
-    { t: "info", text: "↗ Radu joined (cursor #2)" },
-    { t: "ai", text: "✦ AI Agent connected · model: gpt-4o" },
-    { t: "dim", text: "" },
-    { t: "prompt", text: "$ docker build --lang python:3.11" },
-    { t: "warn", text: "⚠ Scanning for vulnerabilities..." },
-    { t: "success", text: "✓ No critical CVEs found" },
-    { t: "success", text: "✓ Container spawned in 1.4s · 128mb" },
-    { t: "dim", text: "" },
-    { t: "ai", text: "✦ AI generated 14 lines in routes.py" },
-    { t: "info", text: "  → Ana typed '14141414'" },
-    { t: "warn", text: "  → Radu rejected block #2 (hallucination)" },
-    { t: "success", text: "✓ Tests passed · exit 0 · 2.3s" },
-    { t: "dim", text: "" },
-    { t: "caret", text: "$ " },
-  ];
-
-  const COLOR_MAP: Record<string, string> = {
-    prompt: "#8b949e",
-    success: "#3fb950",
-    info: "#58a6ff",
-    warn: "#e3b341",
-    ai: "#bc8cff",
-    dim: "#2d333b",
-    err: "#f85149",
-  };
-
   // ── CUSTOM CURSOR
   useEffect(() => {
+    if (!authChecked) return;
+
     let mx = 0,
       my = 0,
       rx = 0,
@@ -104,10 +101,12 @@ export default function CharacterLandingPage() {
       document.removeEventListener("mousemove", onMove);
       cancelAnimationFrame(raf);
     };
-  }, []);
+  }, [authChecked]);
 
   // ── CANVAS PARTICLE GRID
   useEffect(() => {
+    if (!authChecked) return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -211,10 +210,12 @@ export default function CharacterLandingPage() {
       document.removeEventListener("mousemove", onMove);
       cancelAnimationFrame(raf);
     };
-  }, []);
+  }, [authChecked]);
 
   // ── TERMINAL TYPEWRITER
   useEffect(() => {
+    if (!authChecked) return;
+
     const body = termRef.current;
     if (!body) return;
     let li = 0;
@@ -245,10 +246,12 @@ export default function CharacterLandingPage() {
 
     timeout = setTimeout(addLine, 900);
     return () => clearTimeout(timeout);
-  }, []);
+  }, [authChecked]);
 
   // ── STATS COUNTER
   useEffect(() => {
+    if (!authChecked) return;
+
     const count = (el: HTMLDivElement | null, target: number) => {
       if (!el) return;
       let v = 0;
@@ -265,7 +268,11 @@ export default function CharacterLandingPage() {
       count(s3Ref.current, 9200);
     }, 1200);
     return () => clearTimeout(t);
-  }, []);
+  }, [authChecked]);
+
+  if (!authChecked) {
+    return null;
+  }
 
   return (
     <main
