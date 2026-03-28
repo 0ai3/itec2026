@@ -60,7 +60,7 @@ export default function Page() {
         >
           <SidebarItem title="Workspace" href="/workspace" />
           <SidebarItem title="Profile" href="/profile" />
-          <SidebarItem title="Pipelines" href="/dockertest" />
+          <SidebarItem title="Pipelines" href="/pipelines" />
           <SidebarItem title="Extensions" href="/extensions" />
 
         </div>
