@@ -49,6 +49,13 @@ function generateId() {
 	return Math.random().toString(36).slice(2, 10)
 }
 
+const setYTextValue = (yText: import('yjs').Text, value: string) => {
+	yText.delete(0, yText.length)
+	if (value) {
+		yText.insert(0, value)
+	}
+}
+
 export default function Editor({
 	roomId = 'monaco-room',
 	language = 'typescript',
@@ -472,6 +479,12 @@ export default function Editor({
 
 		const nextValue = replaceContentValueRef.current ?? ''
 		model.setValue(nextValue)
+
+		const yText = ydocRef.current?.getText('monaco')
+		if (yText && yText.toString() !== nextValue) {
+			setYTextValue(yText, nextValue)
+		}
+
 		onCodeChangeRef.current?.(nextValue)
 
 		if (replaceContentSourceRef.current === 'ai' && nextValue.trim()) {
@@ -499,6 +512,7 @@ export default function Editor({
 		let removeSelectionListener: (() => void) | null = null
 		let removeClickListener: (() => void) | null = null
 		let initialSeedApplied = false
+		let fallbackSeedTimer: ReturnType<typeof setTimeout> | null = null
 
 		const setup = async () => {
 			if (!containerRef.current || editorRef.current) return
@@ -761,10 +775,21 @@ export default function Editor({
 
 			const yText = ydoc.getText('monaco')
 
+			fallbackSeedTimer = setTimeout(() => {
+				const editor = editorRef.current
+				const model = editor?.getModel()
+				if (!editor || !model) return
+				if (provider.wsconnected || provider.wsconnecting) return
+				if (model.getValue().length > 0) return
+				if (!initialCodeRef.current) return
+				model.setValue(initialCodeRef.current)
+				onCodeChangeRef.current?.(initialCodeRef.current)
+			}, 1200)
+
 			const updateSync = (isSynced: boolean) => {
 				if (isSynced) {
 					setConnectionStatus('connected')
-					if (!initialSeedApplied && yText.length === 0 && initialCodeRef.current) {
+					if (!initialSeedApplied && yText.toString().trim().length === 0 && initialCodeRef.current) {
 						yText.insert(0, initialCodeRef.current)
 						initialSeedApplied = true
 					}
@@ -800,6 +825,10 @@ export default function Editor({
 			removeInlineProvider?.()
 			removeSelectionListener?.()
 			removeClickListener?.()
+			if (fallbackSeedTimer) {
+				clearTimeout(fallbackSeedTimer)
+				fallbackSeedTimer = null
+			}
 			completionAbortRef.current?.abort()
 			completionAbortRef.current = null
 			pendingInlineCompletionRef.current = null
