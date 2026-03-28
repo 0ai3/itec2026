@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
+    
   },
   "dependencies": {
     "concurrently": "^9.2.1",
@@ -26,6 +27,7 @@
     "y-websocket": "^3.0.0",
     "y-websocket-legacy": "npm:y-websocket@^1.5.4",
     "yjs": "^13.6.30"
+    
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -36,9 +38,13 @@
     "@types/react-dom": "^19",
     "@types/tar-stream": "^3.1.4",
     "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^9",
+    "eslint": "^9.39.4",
     "eslint-config-next": "16.2.1",
+    "eslint-plugin-security": "^4.0.0",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+    
+  },
+
+  "type": "module"
 }

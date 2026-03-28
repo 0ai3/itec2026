@@ -5,6 +5,9 @@ import path from 'node:path'
 import { Writable } from 'node:stream'
 import { NextResponse } from 'next/server'
 import { ensureRepoInitialized, listRepoEntries } from '@/lib/repo-db-storage'
+import { ESLint } from 'eslint'
+// @ts-ignore
+import pluginSecurity from 'eslint-plugin-security'
 
 export const runtime = 'nodejs'
 
@@ -98,6 +101,39 @@ const writeWorkspaceFromDb = async (ownerUid: string, repoId: string) => {
     return tempRoot
 }
 
+async function scanJavaScriptCode(code: string) {
+    const eslint = new ESLint({
+        overrideConfigFile: true,
+        overrideConfig: [{
+            plugins: { security: pluginSecurity },
+            languageOptions: {
+                ecmaVersion: "latest",
+                sourceType: "module",
+            },
+            rules: {
+                'no-eval': 'error',
+                'no-implied-eval': 'error',
+                'security/detect-eval-with-expression': 'error',
+                'security/detect-child-process': 'error', // Fără execuții de terminal
+                'security/detect-non-literal-fs-filename': 'error' // Fără citire de fișiere de sistem sensibile
+            },
+        }],
+    });
+
+    const results = await eslint.lintText(code);
+    
+    // Extragem doar erorile (ignorăm warning-urile)
+    const errors = results[0]?.messages.filter(msg => msg.severity === 2) || [];
+    
+    if (errors.length > 0) {
+        // Formăm un mesaj frumos cu toate problemele găsite
+        const errorMessages = errors.map(e => `Linia ${e.line}: ${e.message}`).join('\n');
+        return errorMessages;
+    }
+    
+    return null; // Null înseamnă că e "Curat", putem rula!
+}
+
 export async function POST(req: Request) {
     let containerForCleanup: Docker.Container | null = null
     let timeoutId: NodeJS.Timeout | undefined // Adăugat pentru a preveni memory leaks
@@ -114,6 +150,31 @@ export async function POST(req: Request) {
         await ensureDockerAvailable()
         await pullImageIfMissing(image)
         tempRepoRoot = await writeWorkspaceFromDb(ownerUid, repoId)
+// Scanăm doar dacă e vorba de Node sau Deno (JavaScript/TypeScript)
+        if (image.includes('node') || image.includes('deno')) {
+// Extragem numele fișierului din comanda "node fisier.js"
+         const filePathMatch = command.match(/["']?([^"']+\.(?:js|ts|jsx|tsx))["']?$/i);
+
+         if (filePathMatch) {
+            // Acum folosim tempRepoRoot pe care tocmai l-ai generat mai sus!
+            const fullPath = path.join(tempRepoRoot, filePathMatch[1])
+
+            try{
+                const codeToScan = await fs.readFile(fullPath, 'utf8');
+                const securityAlerts = await scanJavaScriptCode(codeToScan);
+
+                if(securityAlerts) {
+                    // Oprim execuția și returnăm cod 403 (Forbidden)
+                    return NextResponse.json({
+                        error: "Executie blocata din motive de securitate!",
+                        output: `Alerta de securitate:\n\n${securityAlerts}`
+                    }, {status: 403});
+                }
+            }catch(e){
+                console.log("Nu am putut citi fisierul pt scanare", e);
+            }
+         }
+        }
 
         let outputData = ''
         const outputStream = new Writable({
