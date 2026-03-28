@@ -2,7 +2,15 @@
 
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { DragEvent, FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  DragEvent,
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   collection,
   collectionGroup,
@@ -19,10 +27,9 @@ import { auth, db } from '@/lib/firebase'
 import SyncedTerminal from '@/components/synced-terminal'
 import RepoChat from '@/components/repo-chat'
 
-type InviteRecord = {
-  email: string
-  status?: string
-}
+/* ─── Types ─────────────────────────────────────────────────────────────── */
+
+type InviteRecord = { email: string; status?: string }
 
 type RepoFileNode = {
   name: string
@@ -38,16 +45,13 @@ type AiRange = {
   endColumn: number
 }
 
+/* ─── Helpers ────────────────────────────────────────────────────────────── */
+
 const getFullRangeForCode = (code: string): AiRange => {
   const lines = code.split('\n')
   const endLineNumber = Math.max(1, lines.length)
   const lastLine = lines[endLineNumber - 1] ?? ''
-  return {
-    startLineNumber: 1,
-    startColumn: 1,
-    endLineNumber,
-    endColumn: lastLine.length + 1,
-  }
+  return { startLineNumber: 1, startColumn: 1, endLineNumber, endColumn: lastLine.length + 1 }
 }
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
@@ -58,123 +62,42 @@ const getOwnerUidFromRepoPath = (path: string) => {
 }
 
 const getOwnerLabel = (ownerName?: string | null, ownerEmail?: string | null) => {
-  if (ownerName && ownerName.trim()) {
-    return ownerName
-  }
-  if (ownerEmail && ownerEmail.includes('@')) {
-    return ownerEmail.split('@')[0]
-  }
+  if (ownerName?.trim()) return ownerName
+  if (ownerEmail?.includes('@')) return ownerEmail.split('@')[0]
   return 'Unknown user'
 }
 
 const getLanguageFromFilePath = (filePath: string | null) => {
-  if (!filePath) {
-    return 'typescript'
-  }
-  if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) {
-    return 'typescript'
-  }
-  if (filePath.endsWith('.js') || filePath.endsWith('.jsx')) {
-    return 'javascript'
-  }
-  if (filePath.endsWith('.json')) {
-    return 'json'
-  }
-  if (filePath.endsWith('.css')) {
-    return 'css'
-  }
-  if (filePath.endsWith('.html')) {
-    return 'html'
-  }
-  if (filePath.endsWith('.py')) {
-    return 'python'
-  }
-  if (filePath.endsWith('.md')) {
-    return 'markdown'
-  }
-  if (filePath.endsWith('.cpp')) {
-    return 'cpp'
-  }
+  if (!filePath) return 'typescript'
+  if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) return 'typescript'
+  if (filePath.endsWith('.js') || filePath.endsWith('.jsx')) return 'javascript'
+  if (filePath.endsWith('.json')) return 'json'
+  if (filePath.endsWith('.css')) return 'css'
+  if (filePath.endsWith('.html')) return 'html'
+  if (filePath.endsWith('.py')) return 'python'
+  if (filePath.endsWith('.md')) return 'markdown'
+  if (filePath.endsWith('.cpp')) return 'cpp'
   return 'plaintext'
 }
 
 const getRuntimeConfigForFilePath = (filePath: string | null) => {
-  if (!filePath) {
-    return {
-      image: 'python:3.11-alpine',
-      command: 'python main.py',
-    }
-  }
-
-  if (filePath.endsWith('.py')) {
-    return {
-      image: 'python:3.11-alpine',
-      command: `python ${JSON.stringify(filePath)}`,
-    }
-  }
-
-  if (filePath.endsWith('.js') || filePath.endsWith('.mjs') || filePath.endsWith('.cjs')) {
-    return {
-      image: 'node:20-alpine',
-      command: `node ${JSON.stringify(filePath)}`,
-    }
-  }
-
-  if (filePath.endsWith('.ts')) {
-    return {
-      image: 'denoland/deno:alpine',
-      command: `deno run --allow-read ${JSON.stringify(filePath)}`,
-    }
-  }
-
-  if (filePath.endsWith('.tsx') || filePath.endsWith('.jsx')) {
-    return {
-      image: 'node:20-alpine',
-      command: `echo ${JSON.stringify('JSX/TSX files require a project build step (e.g. npm run build).')}`,
-    }
-  }
-
-  // ADĂUGĂM SUPORT PENTRU C++
-  if (filePath.endsWith('.cpp') || filePath.endsWith('.cc') || filePath.endsWith('.cxx')) {
-    return {
-      image: 'gcc:latest',
-      // Compilează și rulează
-      command: `g++ ${JSON.stringify(filePath)} -o out_bin && ./out_bin`,
-    }
-  }
-
-  // ADĂUGĂM SUPORT PENTRU C
-  if (filePath.endsWith('.c')) {
-    return {
-      image: 'gcc:latest',
-      command: `gcc ${JSON.stringify(filePath)} -o out_bin && ./out_bin`,
-    }
-  }
-
-  // ADĂUGĂM SUPORT PENTRU JAVA
-  if (filePath.endsWith('.java')) {
-    return {
-      image: 'openjdk:21-jdk',
-      command: `java ${JSON.stringify(filePath)}`,
-    }
-  }
-
-  return {
-    image: 'alpine:3.20',
-    command: `cat ${JSON.stringify(filePath)}`,
-  }
+  if (!filePath) return { image: 'python:3.11-alpine', command: 'python main.py' }
+  if (filePath.endsWith('.py')) return { image: 'python:3.11-alpine', command: `python ${JSON.stringify(filePath)}` }
+  if (filePath.endsWith('.js') || filePath.endsWith('.mjs') || filePath.endsWith('.cjs')) return { image: 'node:20-alpine', command: `node ${JSON.stringify(filePath)}` }
+  if (filePath.endsWith('.ts')) return { image: 'denoland/deno:alpine', command: `deno run --allow-read ${JSON.stringify(filePath)}` }
+  if (filePath.endsWith('.tsx') || filePath.endsWith('.jsx')) return { image: 'node:20-alpine', command: `echo ${JSON.stringify('JSX/TSX files require a project build step.')}` }
+  if (filePath.endsWith('.cpp') || filePath.endsWith('.cc') || filePath.endsWith('.cxx')) return { image: 'gcc:latest', command: `g++ ${JSON.stringify(filePath)} -o out_bin && ./out_bin` }
+  if (filePath.endsWith('.c')) return { image: 'gcc:latest', command: `gcc ${JSON.stringify(filePath)} -o out_bin && ./out_bin` }
+  if (filePath.endsWith('.java')) return { image: 'openjdk:21-jdk', command: `java ${JSON.stringify(filePath)}` }
+  return { image: 'alpine:3.20', command: `cat ${JSON.stringify(filePath)}` }
 }
 
 const findFirstFile = (nodes: RepoFileNode[]): string | null => {
   for (const node of nodes) {
-    if (node.type === 'file') {
-      return node.path
-    }
+    if (node.type === 'file') return node.path
     if (node.children?.length) {
       const nested = findFirstFile(node.children)
-      if (nested) {
-        return nested
-      }
+      if (nested) return nested
     }
   }
   return null
@@ -182,11 +105,48 @@ const findFirstFile = (nodes: RepoFileNode[]): string | null => {
 
 const getParentFolderPath = (filePath: string) => {
   const parts = filePath.split('/').filter(Boolean)
-  if (parts.length <= 1) {
-    return ''
-  }
+  if (parts.length <= 1) return ''
   return parts.slice(0, -1).join('/')
 }
+
+/* ─── File icon ──────────────────────────────────────────────────────────── */
+
+const FILE_ICONS: Record<string, { icon: string; color: string }> = {
+  ts: { icon: 'TS', color: '#3178c6' },
+  tsx: { icon: 'TS', color: '#3178c6' },
+  js: { icon: 'JS', color: '#f7df1e' },
+  jsx: { icon: 'JS', color: '#f7df1e' },
+  py: { icon: 'PY', color: '#3572A5' },
+  json: { icon: '{}', color: '#cbcb41' },
+  css: { icon: 'CS', color: '#563d7c' },
+  html: { icon: 'HT', color: '#e34c26' },
+  md: { icon: 'MD', color: '#6e7681' },
+  cpp: { icon: 'C+', color: '#f34b7d' },
+  c: { icon: 'C', color: '#555555' },
+  java: { icon: 'JV', color: '#b07219' },
+}
+
+function FileIcon({ name }: { name: string }) {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  const info = FILE_ICONS[ext] ?? { icon: '·', color: '#6e7681' }
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 700,
+        color: info.color,
+        minWidth: 18,
+        textAlign: 'center',
+        fontFamily: 'monospace',
+        letterSpacing: '-0.5px',
+      }}
+    >
+      {info.icon}
+    </span>
+  )
+}
+
+/* ─── FileTree ───────────────────────────────────────────────────────────── */
 
 function FileTree({
   nodes,
@@ -195,52 +155,64 @@ function FileTree({
   onSelectFile,
   onSelectFolder,
   onDropFilesToFolder,
+  depth = 0,
 }: {
   nodes: RepoFileNode[]
   selectedFilePath: string | null
   selectedFolderPath: string
-  onSelectFile: (filePath: string) => void
-  onSelectFolder: (folderPath: string) => void
-  onDropFilesToFolder: (folderPath: string, files: File[]) => void
+  onSelectFile: (p: string) => void
+  onSelectFolder: (p: string) => void
+  onDropFilesToFolder: (folder: string, files: File[]) => void
+  depth?: number
 }) {
-  const handleDirectoryDrop = (event: DragEvent<HTMLLIElement>, folderPath: string) => {
-    event.preventDefault()
-    event.stopPropagation()
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
-    const files = Array.from(event.dataTransfer.files ?? [])
-    if (files.length === 0) {
-      return
-    }
-
-    onDropFilesToFolder(folderPath, files)
+  const handleDrop = (e: DragEvent<HTMLDivElement>, folderPath: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const files = Array.from(e.dataTransfer.files ?? [])
+    if (files.length) onDropFilesToFolder(folderPath, files)
   }
 
   return (
-    <ul className="space-y-1">
+    <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
       {nodes.map((node) => {
         if (node.type === 'directory') {
-          const isSelectedFolder = selectedFolderPath === node.path
+          const isOpen = !collapsed[node.path]
           return (
-            <li
-              key={node.path}
-              onDragOver={(event) => {
-                event.preventDefault()
-                event.dataTransfer.dropEffect = 'copy'
-              }}
-              onDrop={(event) => handleDirectoryDrop(event, node.path)}
-            >
-              <button
-                type="button"
-                onClick={() => onSelectFolder(node.path)}
-                className={`w-full text-left text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded transition-colors ${
-                  isSelectedFolder ? 'bg-white/15 text-white shadow-sm' : 'text-gray-300 bg-white/5 hover:bg-white/10'
-                }`}
-                title={node.path}
+            <li key={node.path}>
+              <div
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }}
+                onDrop={(e) => handleDrop(e, node.path)}
               >
-                {node.name}
-              </button>
-              {node.children?.length ? (
-                <div className="ml-3 mt-1 border-l border-white/10 pl-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCollapsed(prev => ({ ...prev, [node.path]: isOpen }))
+                    onSelectFolder(node.path)
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    width: '100%',
+                    background: selectedFolderPath === node.path ? 'rgba(255,255,255,0.07)' : 'transparent',
+                    border: 'none',
+                    color: '#c9d1d9',
+                    cursor: 'pointer',
+                    padding: `3px 8px 3px ${8 + depth * 12}px`,
+                    fontSize: 13,
+                    textAlign: 'left',
+                    borderRadius: 4,
+                  }}
+                >
+                  <span style={{ fontSize: 10, color: '#6e7681', minWidth: 12 }}>{isOpen ? '▾' : '▸'}</span>
+                  <span style={{ fontSize: 11, color: '#6e7681', minWidth: 18, textAlign: 'center' }}>📁</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {node.name}
+                  </span>
+                </button>
+                {isOpen && node.children?.length ? (
                   <FileTree
                     nodes={node.children}
                     selectedFilePath={selectedFilePath}
@@ -248,11 +220,10 @@ function FileTree({
                     onSelectFile={onSelectFile}
                     onSelectFolder={onSelectFolder}
                     onDropFilesToFolder={onDropFilesToFolder}
+                    depth={depth + 1}
                   />
-                </div>
-              ) : (
-                <p className="text-xs text-gray-500 ml-2">(empty)</p>
-              )}
+                ) : null}
+              </div>
             </li>
           )
         }
@@ -263,12 +234,27 @@ function FileTree({
             <button
               type="button"
               onClick={() => onSelectFile(node.path)}
-              className={`w-full text-left text-sm rounded-md px-2.5 py-1.5 truncate transition-colors ${
-                isSelected ? 'bg-white/15 text-white shadow-sm' : 'hover:bg-white/10 text-gray-300'
-              }`}
-              title={node.path}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                width: '100%',
+                background: isSelected ? 'rgba(88,166,255,0.12)' : 'transparent',
+                border: 'none',
+                borderLeft: isSelected ? '2px solid #58a6ff' : '2px solid transparent',
+                color: isSelected ? '#e6edf3' : '#8b949e',
+                cursor: 'pointer',
+                padding: `3px 8px 3px ${6 + depth * 12}px`,
+                fontSize: 13,
+                textAlign: 'left',
+                borderRadius: '0 4px 4px 0',
+                transition: 'background 0.1s, color 0.1s',
+              }}
             >
-              {node.name}
+              <FileIcon name={node.name} />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {node.name}
+              </span>
             </button>
           </li>
         )
@@ -277,10 +263,46 @@ function FileTree({
   )
 }
 
+/* ─── Resize hook ────────────────────────────────────────────────────────── */
+
+function useResize(initialPx: number, min: number, max: number, direction: 'horizontal' | 'vertical' = 'horizontal') {
+  const [size, setSize] = useState(initialPx)
+  const dragging = useRef(false)
+  const startPos = useRef(0)
+  const startSize = useRef(initialPx)
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    startPos.current = direction === 'horizontal' ? e.clientX : e.clientY
+    startSize.current = size
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return
+      const delta = direction === 'horizontal'
+        ? ev.clientX - startPos.current
+        : startPos.current - ev.clientY
+      setSize(Math.min(max, Math.max(min, startSize.current + delta)))
+    }
+    const onUp = () => {
+      dragging.current = false
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [size, min, max, direction])
+
+  return { size, onMouseDown }
+}
+
+/* ─── Main page ──────────────────────────────────────────────────────────── */
+
 export default function RepoEditorPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
   const repoId = params.id
+
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null)
   const [ownerUid, setOwnerUid] = useState<string | null>(null)
   const [ownerName, setOwnerName] = useState<string | null>(null)
@@ -310,791 +332,410 @@ export default function RepoEditorPage() {
   const [selectedFileAiRanges, setSelectedFileAiRanges] = useState<AiRange[]>([])
   const [editorAiRangesToken, setEditorAiRangesToken] = useState(0)
 
+  // UI state
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(true)
+  const [chatOpen, setChatOpen] = useState(false)
+
+  // Resize panels
+  const sidebar = useResize(220, 140, 400, 'horizontal')
+  const terminal = useResize(220, 80, 500, 'vertical')
+
+  /* ── Auth ── */
   useEffect(() => {
-    if (!auth) {
-      return
-    }
-
-    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+    if (!auth) return
+    const unsub = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser)
-      if (!nextUser) {
-        router.replace('/login')
-      }
+      if (!nextUser) router.replace('/login')
     })
-
-    return () => {
-      unsubscribe()
-    }
+    return unsub
   }, [router])
 
+  /* ── Access check ── */
   useEffect(() => {
     const checkAccess = async () => {
       if (!db || !user) {
-        setOwnerUid(null)
-        setOwnerName(null)
-        setOwnerEmail(null)
-        setIsOwner(false)
-        setRepoName(null)
-        setCollaborationRoomId(repoId)
-        setIsCheckingAccess(false)
-        return
+        setOwnerUid(null); setOwnerName(null); setOwnerEmail(null)
+        setIsOwner(false); setRepoName(null); setCollaborationRoomId(repoId)
+        setIsCheckingAccess(false); return
       }
-
-      setIsCheckingAccess(true)
-      setErrorMessage(null)
-      setInviteError(null)
-      setInviteMessage(null)
+      setIsCheckingAccess(true); setErrorMessage(null)
 
       try {
-        const myRepoSnapshot = await getDoc(doc(db, 'users', user.uid, 'repos', repoId))
-        if (myRepoSnapshot.exists()) {
-          const myRepoData = myRepoSnapshot.data() as {
-            name?: string
-            role?: 'owner' | 'collaborator'
-            ownerName?: string
-            ownerUid?: string
-            ownerEmail?: string
-          }
-
-          const isLegacyCollaboratorWithoutOwner =
-            myRepoData.role === 'collaborator' && !myRepoData.ownerUid
-
-          if (!isLegacyCollaboratorWithoutOwner) {
-            const effectiveOwnerUid =
-              myRepoData.role === 'collaborator' && myRepoData.ownerUid ? myRepoData.ownerUid : user.uid
-            const ownerView = effectiveOwnerUid === user.uid
-
-            setRepoName(myRepoData.name ?? repoId)
-            setOwnerUid(effectiveOwnerUid)
-            setOwnerName(myRepoData.ownerName ?? null)
-            setOwnerEmail(myRepoData.ownerEmail ?? user.email ?? null)
-            setIsOwner(ownerView)
-            setCollaborationRoomId(`${effectiveOwnerUid}:${repoId}`)
-
+        const myRepoSnap = await getDoc(doc(db, 'users', user.uid, 'repos', repoId))
+        if (myRepoSnap.exists()) {
+          const d = myRepoSnap.data() as { name?: string; role?: 'owner' | 'collaborator'; ownerName?: string; ownerUid?: string; ownerEmail?: string }
+          const isLegacy = d.role === 'collaborator' && !d.ownerUid
+          if (!isLegacy) {
+            const effOwner = d.role === 'collaborator' && d.ownerUid ? d.ownerUid : user.uid
+            const ownerView = effOwner === user.uid
+            setRepoName(d.name ?? repoId); setOwnerUid(effOwner); setOwnerName(d.ownerName ?? null)
+            setOwnerEmail(d.ownerEmail ?? user.email ?? null); setIsOwner(ownerView)
+            setCollaborationRoomId(`${effOwner}:${repoId}`)
             if (ownerView) {
-              const invitesSnapshot = await getDocs(
-                collection(db, 'users', effectiveOwnerUid, 'repos', repoId, 'invites')
-              )
-              setInvites(
-                invitesSnapshot.docs.map((inviteDoc) => {
-                  const inviteData = inviteDoc.data() as InviteRecord
-                  return {
-                    email: inviteData.email,
-                    status: inviteData.status,
-                  }
-                })
-              )
-            } else {
-              setInvites([])
-            }
-
-            setIsCheckingAccess(false)
-            return
+              const invSnap = await getDocs(collection(db, 'users', effOwner, 'repos', repoId, 'invites'))
+              setInvites(invSnap.docs.map(d2 => { const id = d2.data() as InviteRecord; return { email: id.email, status: id.status } }))
+            } else setInvites([])
+            setIsCheckingAccess(false); return
           }
         }
 
         const repoResults = await getDocs(collectionGroup(db, 'repos'))
-        const matchingRepoDocs = repoResults.docs.filter((repoDoc) => repoDoc.id === repoId)
+        const matching = repoResults.docs.filter(d2 => d2.id === repoId)
+        if (!matching.length) { setErrorMessage('Repo not found.'); return }
 
-        if (matchingRepoDocs.length === 0) {
-          setErrorMessage('Repo not found.')
-          return
-        }
+        const curEmail = normalizeEmail(user.email ?? '')
+        let matched: { name: string; ownerId: string; ownerView: boolean; ownerName?: string; ownerEmail?: string } | null = null
 
-        const currentUserEmail = normalizeEmail(user.email ?? '')
-        let matchedRepo: {
-          name: string
-          ownerId: string
-          ownerView: boolean
-          ownerName?: string
-          ownerEmail?: string
-        } | null = null
-
-        for (const repoDoc of matchingRepoDocs) {
-          const candidateOwnerUid = getOwnerUidFromRepoPath(repoDoc.ref.path)
-          if (!candidateOwnerUid) {
-            continue
-          }
-
+        for (const repoDoc of matching) {
+          const candOwner = getOwnerUidFromRepoPath(repoDoc.ref.path)
+          if (!candOwner) continue
           const data = repoDoc.data() as { name?: string; ownerName?: string; ownerEmail?: string }
-          if (candidateOwnerUid === user.uid) {
-            matchedRepo = {
-              name: data.name ?? repoId,
-              ownerId: candidateOwnerUid,
-              ownerView: true,
-              ownerName: data.ownerName,
-              ownerEmail: data.ownerEmail,
-            }
-            break
-          }
-
-          if (!currentUserEmail) {
-            continue
-          }
-
-          const inviteDocRef = doc(
-            db,
-            'users',
-            candidateOwnerUid,
-            'repos',
-            repoId,
-            'invites',
-            encodeURIComponent(currentUserEmail)
-          )
-          const inviteDoc = await getDoc(inviteDocRef)
-          if (!inviteDoc.exists()) {
-            continue
-          }
-
-          matchedRepo = {
-            name: data.name ?? repoId,
-            ownerId: candidateOwnerUid,
-            ownerView: false,
-            ownerName: data.ownerName,
-            ownerEmail: data.ownerEmail,
-          }
+          if (candOwner === user.uid) { matched = { name: data.name ?? repoId, ownerId: candOwner, ownerView: true, ownerName: data.ownerName, ownerEmail: data.ownerEmail }; break }
+          if (!curEmail) continue
+          const invRef = doc(db, 'users', candOwner, 'repos', repoId, 'invites', encodeURIComponent(curEmail))
+          const invDoc = await getDoc(invRef)
+          if (!invDoc.exists()) continue
+          matched = { name: data.name ?? repoId, ownerId: candOwner, ownerView: false, ownerName: data.ownerName, ownerEmail: data.ownerEmail }
           break
         }
 
-        if (!matchedRepo) {
-          setErrorMessage('You do not have access to this repo.')
-          setOwnerUid(null)
-          setOwnerName(null)
-          setOwnerEmail(null)
-          setIsOwner(false)
-          setRepoName(null)
-          setCollaborationRoomId(repoId)
-          setInvites([])
-          return
-        }
+        if (!matched) { setErrorMessage('You do not have access to this repo.'); setIsCheckingAccess(false); return }
 
-        setRepoName(matchedRepo.name)
-        setOwnerUid(matchedRepo.ownerId)
-        setOwnerName(matchedRepo.ownerName ?? null)
-        setOwnerEmail(matchedRepo.ownerEmail ?? null)
-        setIsOwner(matchedRepo.ownerView)
-        setCollaborationRoomId(`${matchedRepo.ownerId}:${repoId}`)
-
-        await setDoc(
-          doc(db, 'users', user.uid, 'repos', repoId),
-          {
-            role: matchedRepo.ownerView ? 'owner' : 'collaborator',
-            ownerUid: matchedRepo.ownerId,
-            ownerName: matchedRepo.ownerName ?? null,
-            ownerEmail: matchedRepo.ownerEmail ?? null,
-          },
-          { merge: true }
-        )
-
-        if (matchedRepo.ownerView) {
-          const invitesSnapshot = await getDocs(
-            collection(db, 'users', matchedRepo.ownerId, 'repos', repoId, 'invites')
-          )
-          setInvites(
-            invitesSnapshot.docs.map((inviteDoc) => {
-              const inviteData = inviteDoc.data() as InviteRecord
-              return {
-                email: inviteData.email,
-                status: inviteData.status,
-              }
-            })
-          )
-        } else {
-          setInvites([])
-        }
-      } catch (error) {
-        if (error instanceof Error) {
-          setErrorMessage(error.message)
-        } else {
-          setErrorMessage('Unable to load repo.')
-        }
-        setOwnerUid(null)
-        setOwnerName(null)
-        setOwnerEmail(null)
-        setIsOwner(false)
-        setRepoName(null)
-        setCollaborationRoomId(repoId)
-        setInvites([])
+        setRepoName(matched.name); setOwnerUid(matched.ownerId); setOwnerName(matched.ownerName ?? null)
+        setOwnerEmail(matched.ownerEmail ?? null); setIsOwner(matched.ownerView)
+        setCollaborationRoomId(`${matched.ownerId}:${repoId}`)
+        await setDoc(doc(db, 'users', user.uid, 'repos', repoId), { role: matched.ownerView ? 'owner' : 'collaborator', ownerUid: matched.ownerId, ownerName: matched.ownerName ?? null, ownerEmail: matched.ownerEmail ?? null }, { merge: true })
+        if (matched.ownerView) {
+          const invSnap = await getDocs(collection(db, 'users', matched.ownerId, 'repos', repoId, 'invites'))
+          setInvites(invSnap.docs.map(d2 => { const id = d2.data() as InviteRecord; return { email: id.email, status: id.status } }))
+        } else setInvites([])
+      } catch (e) {
+        setErrorMessage(e instanceof Error ? e.message : 'Unable to load repo.')
       }
-
       setIsCheckingAccess(false)
     }
-
     void checkAccess()
   }, [repoId, user])
 
-  const loadFileTree = useCallback(async (options?: { silent?: boolean }) => {
-    if (!ownerUid) {
-      return
-    }
-
-    if (!options?.silent) {
-      setIsLoadingFiles(true)
-    }
+  /* ── File tree ── */
+  const loadFileTree = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!ownerUid) return
+    if (!opts?.silent) setIsLoadingFiles(true)
     try {
-      const response = await fetch(
-        `/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(repoId)}`
-      )
-      const data = (await response.json()) as { tree?: RepoFileNode[]; error?: string }
-      if (!response.ok) {
-        throw new Error(data.error || 'Unable to load file tree')
-      }
-
+      const res = await fetch(`/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(repoId)}`)
+      const data = (await res.json()) as { tree?: RepoFileNode[]; error?: string }
+      if (!res.ok) throw new Error(data.error || 'Unable to load file tree')
       const tree = data.tree ?? []
       setFileTree(tree)
-      if (!selectedFilePath) {
-        const firstFile = findFirstFile(tree)
-        if (firstFile) {
-          setSelectedFilePath(firstFile)
-        }
-      }
-    } catch (error) {
-      if (error instanceof Error) {
-        setErrorMessage(error.message)
-      }
-    }
-    if (!options?.silent) {
-      setIsLoadingFiles(false)
-    }
+      if (!selectedFilePath) { const f = findFirstFile(tree); if (f) setSelectedFilePath(f) }
+    } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
+    if (!opts?.silent) setIsLoadingFiles(false)
   }, [ownerUid, repoId, selectedFilePath])
 
   useEffect(() => {
-    const initFilesystem = async () => {
-      if (!ownerUid) {
-        return
-      }
-
-      await fetch('/api/repo-files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'init', ownerUid, repoId }),
-      })
-
+    const init = async () => {
+      if (!ownerUid) return
+      await fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'init', ownerUid, repoId }) })
       await loadFileTree()
     }
-
-    void initFilesystem()
+    void init()
   }, [ownerUid, repoId, loadFileTree])
 
   useEffect(() => {
-    if (!ownerUid) {
-      return
-    }
-
-    const interval = setInterval(() => {
-      void loadFileTree({ silent: true })
-    }, 1500)
-
-    return () => {
-      clearInterval(interval)
-    }
+    if (!ownerUid) return
+    const interval = setInterval(() => void loadFileTree({ silent: true }), 1500)
+    return () => clearInterval(interval)
   }, [ownerUid, loadFileTree])
 
+  /* ── Selected file ── */
   useEffect(() => {
-    const loadSelectedFile = async () => {
-      if (!ownerUid || !selectedFilePath) {
-        return
-      }
-
+    const load = async () => {
+      if (!ownerUid || !selectedFilePath) return
       setIsLoadingSelectedFile(true)
       try {
-        const response = await fetch(
-          `/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(
-            repoId
-          )}&filePath=${encodeURIComponent(selectedFilePath)}`
-        )
-        const data = (await response.json()) as { content?: string; aiRanges?: AiRange[]; error?: string }
-        if (!response.ok) {
-          throw new Error(data.error || 'Unable to load file content')
-        }
-        setSelectedFileContent(data.content ?? '')
-        setSelectedFileAiRanges(data.aiRanges ?? [])
-        setEditorAiRangesToken((prev) => prev + 1)
-        setEditorReplaceSource('user')
-        setFileMessage(null)
-      } catch (error) {
-        if (error instanceof Error) {
-          setErrorMessage(error.message)
-        }
-      } finally {
-        setIsLoadingSelectedFile(false)
-      }
+        const res = await fetch(`/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(repoId)}&filePath=${encodeURIComponent(selectedFilePath)}`)
+        const data = (await res.json()) as { content?: string; aiRanges?: AiRange[]; error?: string }
+        if (!res.ok) throw new Error(data.error || 'Unable to load file')
+        setSelectedFileContent(data.content ?? ''); setSelectedFileAiRanges(data.aiRanges ?? [])
+        setEditorAiRangesToken(p => p + 1); setEditorReplaceSource('user'); setFileMessage(null)
+      } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
+      setIsLoadingSelectedFile(false)
     }
-
-    void loadSelectedFile()
+    void load()
   }, [ownerUid, repoId, selectedFilePath])
 
+  /* ── Auto-save ── */
   useEffect(() => {
-    if (!ownerUid || !selectedFilePath || isLoadingSelectedFile) {
-      return
-    }
-
-    const timer = setTimeout(() => {
-      void fetch('/api/repo-files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'save',
-          ownerUid,
-          repoId,
-          filePath: selectedFilePath,
-          content: selectedFileContent,
-          aiRanges: selectedFileAiRanges,
-        }),
-      }).then(async (response) => {
-        if (!response.ok) {
-          const data = (await response.json()) as { error?: string }
-          throw new Error(data.error || 'Unable to auto-save AI ranges')
-        }
-      }).catch((error: unknown) => {
-        if (error instanceof Error) {
-          setErrorMessage(error.message)
-        }
-      })
+    if (!ownerUid || !selectedFilePath || isLoadingSelectedFile) return
+    const t = setTimeout(() => {
+      void fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ownerUid, repoId, filePath: selectedFilePath, content: selectedFileContent, aiRanges: selectedFileAiRanges }) })
+        .then(async r => { if (!r.ok) { const d = await r.json() as { error?: string }; throw new Error(d.error || 'Auto-save failed') } })
+        .catch(e => { if (e instanceof Error) setErrorMessage(e.message) })
     }, 400)
-
-    return () => clearTimeout(timer)
+    return () => clearTimeout(t)
   }, [ownerUid, repoId, selectedFilePath, selectedFileContent, selectedFileAiRanges, isLoadingSelectedFile])
 
-  const handleInviteCollaborator = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!db || !user || !ownerUid || !isOwner) {
-      setInviteError('Only the repo owner can invite collaborators.')
-      return
-    }
-
-    const normalizedInviteEmail = normalizeEmail(inviteEmail)
-    if (!normalizedInviteEmail || !normalizedInviteEmail.includes('@')) {
-      setInviteError('Enter a valid email address.')
-      return
-    }
-
-    setInviteError(null)
-    setInviteMessage(null)
-    setIsInviting(true)
-
+  const handleInvite = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!db || !user || !ownerUid || !isOwner) { setInviteError('Only the repo owner can invite.'); return }
+    const em = normalizeEmail(inviteEmail)
+    if (!em.includes('@')) { setInviteError('Enter a valid email.'); return }
+    setInviteError(null); setInviteMessage(null); setIsInviting(true)
     try {
-      const inviteRef = doc(
-        db,
-        'users',
-        ownerUid,
-        'repos',
-        repoId,
-        'invites',
-        encodeURIComponent(normalizedInviteEmail)
-      )
-
-      await setDoc(
-        inviteRef,
-        {
-          email: normalizedInviteEmail,
-          status: 'invited',
-          invitedByUid: user.uid,
-          invitedByEmail: user.email ?? null,
-          invitedAt: serverTimestamp(),
-        },
-        { merge: true }
-      )
-
-      setInvites((prevInvites) => {
-        const withoutExisting = prevInvites.filter(
-          (existingInvite) => normalizeEmail(existingInvite.email) !== normalizedInviteEmail
-        )
-        return [...withoutExisting, { email: normalizedInviteEmail, status: 'invited' }]
-      })
-      setInviteEmail('')
-      setInviteMessage(`Invitation saved for ${normalizedInviteEmail}.`)
-    } catch (error) {
-      if (error instanceof Error) {
-        setInviteError(error.message)
-      } else {
-        setInviteError('Unable to invite collaborator.')
-      }
-    }
-
+      await setDoc(doc(db, 'users', ownerUid, 'repos', repoId, 'invites', encodeURIComponent(em)), { email: em, status: 'invited', invitedByUid: user.uid, invitedByEmail: user.email ?? null, invitedAt: serverTimestamp() }, { merge: true })
+      setInvites(prev => [...prev.filter(i => normalizeEmail(i.email) !== em), { email: em, status: 'invited' }])
+      setInviteEmail(''); setInviteMessage(`Invited ${em}`)
+    } catch (e) { setInviteError(e instanceof Error ? e.message : 'Unable to invite.') }
     setIsInviting(false)
   }
 
   const handleSaveFile = async () => {
-    if (!ownerUid || !selectedFilePath) {
-      return
-    }
-
-    setIsSavingFile(true)
-    setFileMessage(null)
-
+    if (!ownerUid || !selectedFilePath) return
+    setIsSavingFile(true); setFileMessage(null)
     try {
-      const response = await fetch('/api/repo-files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'save',
-          ownerUid,
-          repoId,
-          filePath: selectedFilePath,
-          content: selectedFileContent,
-          aiRanges: selectedFileAiRanges,
-        }),
-      })
-
-      const data = (await response.json()) as { error?: string }
-      if (!response.ok) {
-        throw new Error(data.error || 'Unable to save file')
-      }
-
-      setFileMessage(`Saved ${selectedFilePath}`)
-    } catch (error) {
-      if (error instanceof Error) {
-        setErrorMessage(error.message)
-      }
-    }
-
+      const res = await fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save', ownerUid, repoId, filePath: selectedFilePath, content: selectedFileContent, aiRanges: selectedFileAiRanges }) })
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Unable to save')
+      setFileMessage(`Saved`)
+    } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
     setIsSavingFile(false)
   }
 
   const handleCreateFile = async () => {
-    if (!ownerUid) {
-      return
-    }
-
-    const inputPath = window
-      .prompt(
-        selectedFolderPath
-          ? `New file name or path (current folder: ${selectedFolderPath})`
-          : 'New file path (e.g. src/main.py):'
-      )
-      ?.trim()
-    if (!inputPath) {
-      return
-    }
-
-    const normalizedInput = inputPath.replaceAll('\\', '/').replace(/^\/+/, '')
-    const filePath =
-      selectedFolderPath && !normalizedInput.includes('/')
-        ? `${selectedFolderPath}/${normalizedInput}`
-        : normalizedInput
-
+    if (!ownerUid) return
+    const inputPath = window.prompt(selectedFolderPath ? `File name (folder: ${selectedFolderPath}):` : 'File path (e.g. src/main.py):')?.trim()
+    if (!inputPath) return
+    const norm = inputPath.replaceAll('\\', '/').replace(/^\/+/, '')
+    const filePath = selectedFolderPath && !norm.includes('/') ? `${selectedFolderPath}/${norm}` : norm
     try {
-      const response = await fetch('/api/repo-files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create-file',
-          ownerUid,
-          repoId,
-          filePath,
-          content: '',
-        }),
-      })
-      const data = (await response.json()) as { tree?: RepoFileNode[]; error?: string }
-      if (!response.ok) {
-        throw new Error(data.error || 'Unable to create file')
-      }
-      setFileTree(data.tree ?? [])
-      setSelectedFilePath(filePath)
-      setSelectedFolderPath(getParentFolderPath(filePath))
-      setSelectedFileContent('')
-      setSelectedFileAiRanges([])
-      setEditorReplaceContent('')
-      setEditorReplaceSource('user')
-      setEditorReplaceToken((prev) => prev + 1)
-      setEditorAiRangesToken((prev) => prev + 1)
-    } catch (error) {
-      if (error instanceof Error) {
-        setErrorMessage(error.message)
-      }
-    }
+      const res = await fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create-file', ownerUid, repoId, filePath, content: '' }) })
+      const data = (await res.json()) as { tree?: RepoFileNode[]; error?: string }
+      if (!res.ok) throw new Error(data.error || 'Unable to create file')
+      setFileTree(data.tree ?? []); setSelectedFilePath(filePath); setSelectedFolderPath(getParentFolderPath(filePath))
+      setSelectedFileContent(''); setSelectedFileAiRanges([]); setEditorReplaceContent(''); setEditorReplaceSource('user')
+      setEditorReplaceToken(p => p + 1); setEditorAiRangesToken(p => p + 1)
+    } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
   }
 
   const handleCreateFolder = async () => {
-    if (!ownerUid) {
-      return
-    }
-
-    const folderPath = window.prompt('New folder path (e.g. src/utils):')?.trim()
-    if (!folderPath) {
-      return
-    }
-
+    if (!ownerUid) return
+    const folderPath = window.prompt('Folder path (e.g. src/utils):')?.trim()
+    if (!folderPath) return
     try {
-      const response = await fetch('/api/repo-files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create-folder',
-          ownerUid,
-          repoId,
-          folderPath,
-        }),
-      })
-      const data = (await response.json()) as { tree?: RepoFileNode[]; error?: string }
-      if (!response.ok) {
-        throw new Error(data.error || 'Unable to create folder')
-      }
+      const res = await fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create-folder', ownerUid, repoId, folderPath }) })
+      const data = (await res.json()) as { tree?: RepoFileNode[]; error?: string }
+      if (!res.ok) throw new Error(data.error || 'Unable to create folder')
       setFileTree(data.tree ?? [])
-    } catch (error) {
-      if (error instanceof Error) {
-        setErrorMessage(error.message)
-      }
-    }
+    } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
   }
 
   const handleDropFilesToFolder = useCallback(async (folderPath: string, files: File[]) => {
-    if (!ownerUid) {
-      return
-    }
-
-    if (files.length === 0) {
-      return
-    }
-
-    setErrorMessage(null)
-    setFileMessage(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}...`)
-
+    if (!ownerUid || !files.length) return
+    setFileMessage(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}…`)
     try {
       for (const file of files) {
         const content = await file.text()
-        const targetPath = folderPath ? `${folderPath}/${file.name}` : file.name
-
-        const response = await fetch('/api/repo-files', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'create-file',
-            ownerUid,
-            repoId,
-            filePath: targetPath,
-            content,
-          }),
-        })
-
-        const data = (await response.json()) as { tree?: RepoFileNode[]; error?: string }
-        if (!response.ok) {
-          throw new Error(data.error || `Unable to upload ${file.name}`)
-        }
-
+        const target = folderPath ? `${folderPath}/${file.name}` : file.name
+        const res = await fetch('/api/repo-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create-file', ownerUid, repoId, filePath: target, content }) })
+        const data = (await res.json()) as { tree?: RepoFileNode[]; error?: string }
+        if (!res.ok) throw new Error(data.error || `Unable to upload ${file.name}`)
         setFileTree(data.tree ?? [])
       }
-
-      setSelectedFolderPath(folderPath)
-      setFileMessage(`Uploaded ${files.length} file${files.length > 1 ? 's' : ''} to ${folderPath || 'root'}.`)
-    } catch (error) {
-      if (error instanceof Error) {
-        setErrorMessage(error.message)
-      }
-      setFileMessage(null)
-    }
+      setSelectedFolderPath(folderPath); setFileMessage(`Uploaded ${files.length} file${files.length > 1 ? 's' : ''}.`)
+    } catch (e) { if (e instanceof Error) setErrorMessage(e.message); setFileMessage(null) }
   }, [ownerUid, repoId])
 
-  const handleDropFilesAnywhere = useCallback((event: DragEvent<HTMLElement>) => {
-    event.preventDefault()
-
-    const files = Array.from(event.dataTransfer.files ?? [])
-    if (files.length === 0) {
-      return
-    }
-
-    const targetFolderPath = selectedFolderPath || ''
-    void handleDropFilesToFolder(targetFolderPath, files)
+  const handleDropFilesAnywhere = useCallback((e: DragEvent<HTMLElement>) => {
+    e.preventDefault()
+    const files = Array.from(e.dataTransfer.files ?? [])
+    if (files.length) void handleDropFilesToFolder(selectedFolderPath || '', files)
   }, [handleDropFilesToFolder, selectedFolderPath])
 
   const handleImportCodeFromChat = (code: string) => {
-    if (!selectedFilePath) {
-      setErrorMessage('Select a file before importing code from chat.')
-      return
-    }
-
-    setErrorMessage(null)
-    setSelectedFileContent(code)
-    setSelectedFileAiRanges([getFullRangeForCode(code)])
-    setEditorAiRangesToken((prev) => prev + 1)
-    setEditorReplaceContent(code)
-    setEditorReplaceSource('ai')
-    setEditorReplaceToken((prev) => prev + 1)
-    setFileMessage('Imported code from AI chat.')
+    if (!selectedFilePath) { setErrorMessage('Select a file before importing.'); return }
+    setErrorMessage(null); setSelectedFileContent(code); setSelectedFileAiRanges([getFullRangeForCode(code)])
+    setEditorAiRangesToken(p => p + 1); setEditorReplaceContent(code); setEditorReplaceSource('ai')
+    setEditorReplaceToken(p => p + 1); setFileMessage('Imported code from AI.')
   }
 
   const editorLanguage = useMemo(() => getLanguageFromFilePath(selectedFilePath), [selectedFilePath])
   const effectiveEditorRoom = `${collaborationRoomId}:${selectedFilePath ?? 'root'}`
+  const runtimeDefaults = useMemo(() => getRuntimeConfigForFilePath(selectedFilePath), [selectedFilePath])
 
-  const runtimeDefaults = useMemo(
-    () => getRuntimeConfigForFilePath(selectedFilePath),
-    [selectedFilePath]
+  /* ── Loading / Error screens ── */
+  if (isCheckingAccess) return (
+    <main style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0d1117', color: '#e6edf3' }}>
+      <Navbar />
+      <div style={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+        <p style={{ color: '#8b949e', fontSize: 14 }}>Loading repo…</p>
+      </div>
+    </main>
   )
-  if (isCheckingAccess) {
-    return (
-      <main className="flex-1 flex flex-col bg-[#0b1220] text-gray-100">
-        <Navbar />
-        <section className="p-6">
-          <p className="text-sm text-gray-400">Loading repo...</p>
-        </section>
-      </main>
-    )
-  }
 
-  if (errorMessage) {
-    return (
-      <main className="flex-1 flex flex-col bg-[#0b1220] text-gray-100">
-        <Navbar />
-        <section className="p-6 max-w-3xl w-full mx-auto">
-          <p className="text-sm text-red-400 mb-4">{errorMessage}</p>
-          <Link href="/workspace" className="text-sm underline text-gray-200">
-            Back to repos
-          </Link>
-        </section>
-      </main>
-    )
-  }
+  if (errorMessage) return (
+    <main style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0d1117', color: '#e6edf3' }}>
+      <Navbar />
+      <div style={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <p style={{ color: '#f85149', fontSize: 14, marginBottom: 16 }}>{errorMessage}</p>
+          <Link href="/workspace" style={{ color: '#58a6ff', fontSize: 13 }}>← Back to repos</Link>
+        </div>
+      </div>
+    </main>
+  )
 
+  /* ── Main layout ── */
   return (
     <main
-      className="flex-1 flex flex-col bg-[#0b1220] text-gray-100"
-      onDragOver={(event) => {
-        event.preventDefault()
-        event.dataTransfer.dropEffect = 'copy'
-      }}
+      style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0d1117', color: '#e6edf3', overflow: 'hidden', fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }}
       onDrop={handleDropFilesAnywhere}
     >
-      <Navbar />
-      <section className="px-4 md:px-6 pt-4 pb-4 max-w-[1600px] w-full mx-auto">
-        <div className="border border-white/10 rounded-2xl p-4 md:p-5 bg-[#111a2c] backdrop-blur-sm shadow-sm">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">{repoName ?? 'Repo editor'}</h1>
-              <div className="mt-1 flex flex-wrap gap-2 items-center text-sm">
-                <span className="px-2 py-0.5 rounded-full bg-white/10 text-gray-200">Repo ID: {repoId}</span>
-                <span className="px-2 py-0.5 rounded-full bg-white/10 text-gray-200">
-                  Access: {isOwner ? 'Owner' : 'Collaborator'}
-                </span>
-                {!isOwner ? (
-                  <span className="px-2 py-0.5 rounded-full bg-white/10 text-gray-200">
-                    Owner: {getOwnerLabel(ownerName, ownerEmail)}
-                  </span>
-                ) : null}
+      <Navbar/>
+
+      {/* ── Top bar ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid #21262d', background: '#161b22', flexShrink: 0, minHeight: 42 }}>
+        <Link href="/workspace" style={{ color: '#8b949e', fontSize: 12, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+          ← repos
+        </Link>
+        <span style={{ color: '#21262d' }}>/</span>
+        <span style={{ color: '#e6edf3', fontSize: 13, fontWeight: 600 }}>{repoName ?? repoId}</span>
+        <span style={{ padding: '2px 8px', borderRadius: 20, background: isOwner ? 'rgba(88,166,255,0.15)' : 'rgba(163,113,247,0.15)', color: isOwner ? '#58a6ff' : '#a371f7', fontSize: 11, fontWeight: 600, letterSpacing: '0.03em' }}>
+          {isOwner ? 'owner' : 'collaborator'}
+        </span>
+        {!isOwner && (
+          <span style={{ color: '#8b949e', fontSize: 11 }}>by {getOwnerLabel(ownerName, ownerEmail)}</span>
+        )}
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Save indicator */}
+        {fileMessage && (
+          <span style={{ fontSize: 11, color: '#3fb950', transition: 'opacity 0.3s' }}>{fileMessage}</span>
+        )}
+
+        {/* Save button */}
+        <button
+          onClick={handleSaveFile}
+          disabled={!selectedFilePath || isSavingFile}
+          style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #30363d', background: 'transparent', color: isSavingFile ? '#8b949e' : '#e6edf3', fontSize: 12, cursor: 'pointer' }}
+        >
+          {isSavingFile ? 'Saving…' : '⌘S Save'}
+        </button>
+
+        {/* Invite (owner only, colapsabil) */}
+        {isOwner && (
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setInviteOpen(o => !o)}
+              style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #30363d', background: inviteOpen ? 'rgba(88,166,255,0.1)' : 'transparent', color: '#58a6ff', fontSize: 12, cursor: 'pointer' }}
+            >
+              + Invite
+            </button>
+            {inviteOpen && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 8, background: '#161b22', border: '1px solid #30363d', borderRadius: 10, padding: 16, width: 320, zIndex: 100, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+                <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#e6edf3' }}>Invite collaborators</p>
+                <form onSubmit={handleInvite} style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={e => setInviteEmail(e.target.value)}
+                    placeholder="email@example.com"
+                    style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #30363d', background: '#0d1117', color: '#e6edf3', fontSize: 12, outline: 'none' }}
+                  />
+                  <button type="submit" disabled={isInviting} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: '#238636', color: '#fff', fontSize: 12, cursor: 'pointer' }}>
+                    {isInviting ? '…' : 'Send'}
+                  </button>
+                </form>
+                {inviteError && <p style={{ fontSize: 11, color: '#f85149', marginTop: 6 }}>{inviteError}</p>}
+                {inviteMessage && <p style={{ fontSize: 11, color: '#3fb950', marginTop: 6 }}>{inviteMessage}</p>}
+                {invites.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <p style={{ fontSize: 11, color: '#8b949e', marginBottom: 6 }}>Invited</p>
+                    {invites.map(inv => (
+                      <div key={inv.email} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', color: '#c9d1d9' }}>
+                        <span>{inv.email}</span>
+                        <span style={{ color: '#8b949e' }}>{inv.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Workspace ── */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+
+        {/* ── Sidebar ── */}
+        <div style={{ width: sidebar.size, minWidth: sidebar.size, display: 'flex', flexDirection: 'column', borderRight: '1px solid #21262d', background: '#0d1117', overflow: 'hidden', flexShrink: 0 }}>
+          {/* Sidebar header */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #21262d', flexShrink: 0 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#8b949e', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Explorer</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={handleCreateFile} title="New file" style={{ background: 'none', border: 'none', color: '#8b949e', cursor: 'pointer', fontSize: 14, padding: '0 3px', lineHeight: 1 }}>+</button>
+              <button onClick={handleCreateFolder} title="New folder" style={{ background: 'none', border: 'none', color: '#8b949e', cursor: 'pointer', fontSize: 13, padding: '0 3px', lineHeight: 1 }}>📁</button>
+              <button onClick={() => void loadFileTree()} title="Refresh" style={{ background: 'none', border: 'none', color: '#8b949e', cursor: 'pointer', fontSize: 13, padding: '0 3px', lineHeight: 1 }}>↻</button>
             </div>
-            <Link href="/workspace" className="text-sm border border-white/20 rounded-lg px-3 py-1.5 hover:bg-white/10 w-fit">
-              Back to Repos
-            </Link>
           </div>
 
-          {isOwner ? (
-            <div className="mt-4 border border-white/10 rounded-xl p-4 bg-[#0f1729]">
-              <h2 className="font-semibold mb-3">Invite collaborators</h2>
-              <form onSubmit={handleInviteCollaborator} className="flex gap-2 flex-wrap">
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(event) => setInviteEmail(event.target.value)}
-                placeholder="collaborator@email.com"
-                className="flex-1 min-w-64 border border-white/20 rounded-lg px-3 py-2 bg-[#0b1220] text-gray-100 placeholder:text-gray-500"
-              />
-              <button
-                type="submit"
-                disabled={isInviting}
-                className="bg-white text-black rounded-lg px-4 py-2 disabled:opacity-60"
-              >
-                {isInviting ? 'Inviting...' : 'Invite'}
-              </button>
-            </form>
-
-            {inviteError ? <p className="text-sm text-red-500 mt-3">{inviteError}</p> : null}
-            {inviteMessage ? <p className="text-sm text-green-600 mt-3">{inviteMessage}</p> : null}
-
-            <div className="mt-4">
-              <p className="text-sm font-medium mb-2">Invited collaborators</p>
-              {invites.length === 0 ? (
-                <p className="text-sm text-gray-400">No collaborators invited yet.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {invites.map((invite) => (
-                    <li key={invite.email} className="text-sm text-gray-200 px-2 py-1 rounded bg-white/10">
-                      {invite.email} {invite.status ? `(${invite.status})` : ''}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="px-4 md:px-6 pb-6 max-w-400 w-full mx-auto grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 flex-1 min-h-0">
-        <aside className="border border-white/10 rounded-2xl p-3.5 overflow-auto bg-[#111a2c] shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold">Files</h2>
-            <button
-              type="button"
-              onClick={() => void loadFileTree()}
-              className="text-xs border border-white/20 rounded-md px-2 py-1 hover:bg-white/10"
-            >
-              Refresh
-            </button>
-          </div>
-
-          <div className="flex gap-2 mb-3">
-            <button
-              type="button"
-              onClick={handleCreateFile}
-              className="text-xs border border-white/20 rounded-md px-2 py-1 hover:bg-white/10"
-            >
-              + File
-            </button>
-            <button
-              type="button"
-              onClick={handleCreateFolder}
-              className="text-xs border border-white/20 rounded-md px-2 py-1 hover:bg-white/10"
-            >
-              + Folder
-            </button>
-          </div>
-
-          {isLoadingFiles ? (
-            <p className="text-sm text-gray-400">Loading files...</p>
-          ) : fileTree.length === 0 ? (
-            <p className="text-sm text-gray-400">No files yet.</p>
-          ) : (
-            <FileTree
-              nodes={fileTree}
-              selectedFilePath={selectedFilePath}
+          {/* File list */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
+            {isLoadingFiles ? (
+              <p style={{ fontSize: 12, color: '#8b949e', padding: '8px 12px' }}>Loading…</p>
+            ) : fileTree.length === 0 ? (
+              <p style={{ fontSize: 12, color: '#8b949e', padding: '8px 12px' }}>No files yet. Drop files here or click +</p>
+            ) : (
+              <FileTree
+                nodes={fileTree}
+                selectedFilePath={selectedFilePath}
                 selectedFolderPath={selectedFolderPath}
-                onSelectFile={(filePath) => {
-                  setSelectedFilePath(filePath)
-                  setSelectedFolderPath(getParentFolderPath(filePath))
-                }}
-                onSelectFolder={(folderPath) => {
-                  setSelectedFolderPath(folderPath)
-                }}
+                onSelectFile={(p) => { setSelectedFilePath(p); setSelectedFolderPath(getParentFolderPath(p)) }}
+                onSelectFolder={setSelectedFolderPath}
                 onDropFilesToFolder={handleDropFilesToFolder}
-            />
-          )}
-        </aside>
+              />
+            )}
+          </div>
+        </div>
 
-        <div className="flex flex-col gap-3 min-h-0">
-          <div className="border border-white/10 rounded-2xl p-3.5 bg-[#111a2c] shadow-sm">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-sm text-gray-300">
-                Active file: <strong>{selectedFilePath ?? 'None selected'}</strong>
-              </p>
-              <div className="flex gap-2 items-center">
-                <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-gray-200">
-                  Language: {editorLanguage}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleSaveFile}
-                  disabled={!selectedFilePath || isSavingFile}
-                  className="text-sm border border-white/20 rounded-lg px-3 py-1.5 disabled:opacity-60 hover:bg-white/10"
-                >
-                  {isSavingFile ? 'Saving...' : 'Save file'}
-                </button>
+        {/* ── Sidebar resize handle ── */}
+        <div
+          onMouseDown={sidebar.onMouseDown}
+          style={{ width: 4, cursor: 'col-resize', background: 'transparent', flexShrink: 0, transition: 'background 0.15s' }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#388bfd')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+        />
+
+        {/* ── Editor + terminal column ── */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+
+          {/* Tab bar */}
+          <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #21262d', background: '#161b22', flexShrink: 0, height: 36, paddingLeft: 4, gap: 0, overflowX: 'auto' }}>
+            {selectedFilePath ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 14px', height: '100%', borderRight: '1px solid #21262d', borderBottom: '2px solid #388bfd', background: '#0d1117' }}>
+                <FileIcon name={selectedFilePath.split('/').pop() ?? ''} />
+                <span style={{ fontSize: 13, color: '#e6edf3', whiteSpace: 'nowrap' }}>{selectedFilePath.split('/').pop()}</span>
+                <span style={{ fontSize: 11, color: '#8b949e', marginLeft: 2 }}>{editorLanguage}</span>
               </div>
-            </div>
-            {fileMessage ? <p className="text-xs text-green-600 mt-2">{fileMessage}</p> : null}
+            ) : (
+              <span style={{ fontSize: 12, color: '#8b949e', padding: '0 14px' }}>No file open</span>
+            )}
+            <div style={{ flex: 1 }} />
+            {/* Terminal toggle */}
+            <button
+              onClick={() => setTerminalOpen(o => !o)}
+              style={{ height: '100%', padding: '0 14px', background: 'transparent', border: 'none', borderLeft: '1px solid #21262d', color: terminalOpen ? '#e6edf3' : '#8b949e', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              ⊟ Terminal
+            </button>
           </div>
 
-          <div className="h-[52vh] min-h-105 lg:h-[60vh] border border-white/10 rounded-2xl overflow-hidden bg-[#0f1729] shadow-sm">
+          {/* Editor area */}
+          <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
             {selectedFilePath ? (
               <Editor
                 key={effectiveEditorRoom}
@@ -1107,32 +748,95 @@ export default function RepoEditorPage() {
                 replaceContentSource={editorReplaceSource}
                 initialAiRanges={selectedFileAiRanges}
                 aiRangesToken={editorAiRangesToken}
-                onAiRangesChange={(ranges) => setSelectedFileAiRanges(ranges)}
+                onAiRangesChange={(r) => setSelectedFileAiRanges(r)}
                 embedded
               />
             ) : (
-              <div className="h-full grid place-items-center text-sm text-gray-400">
-                {/* Select a file from the sidebar. */}
+              <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <p style={{ color: '#8b949e', fontSize: 14, marginBottom: 8 }}>No file selected</p>
+                  <p style={{ color: '#6e7681', fontSize: 12 }}>Pick a file from the explorer or drop files anywhere</p>
+                </div>
               </div>
             )}
           </div>
 
-          <SyncedTerminal
-            roomId={collaborationRoomId}
-            ownerUid={ownerUid}
-            repoId={repoId}
-            defaultImage={runtimeDefaults.image}
-            defaultCommand={runtimeDefaults.command}
-          />
+          {/* ── Terminal panel ── */}
+          {terminalOpen && (
+            <>
+              {/* Terminal resize handle */}
+              <div
+                onMouseDown={terminal.onMouseDown}
+                style={{ height: 4, cursor: 'row-resize', background: 'transparent', flexShrink: 0, transition: 'background 0.15s' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#388bfd')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              />
+              <div style={{ height: terminal.size, minHeight: terminal.size, borderTop: '1px solid #21262d', flexShrink: 0, overflow: 'hidden' }}>
+                <SyncedTerminal
+                  roomId={collaborationRoomId}
+                  ownerUid={ownerUid}
+                  repoId={repoId}
+                  defaultImage={runtimeDefaults.image}
+                  defaultCommand={runtimeDefaults.command}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
 
+      {/* ── Floating AI chat button ── */}
+      <button
+        onClick={() => setChatOpen(o => !o)}
+        style={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          width: 48,
+          height: 48,
+          borderRadius: '50%',
+          background: chatOpen ? '#388bfd' : '#238636',
+          border: 'none',
+          color: '#fff',
+          fontSize: 20,
+          cursor: 'pointer',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+          zIndex: 200,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'background 0.2s, transform 0.2s',
+        }}
+        title="AI Chat"
+      >
+        {chatOpen ? '×' : '✦'}
+      </button>
+
+      {/* ── Floating AI chat panel ── */}
+      {chatOpen && (
+        <div style={{
+          position: 'fixed',
+          bottom: 84,
+          right: 24,
+          width: 360,
+          maxHeight: '60vh',
+          zIndex: 199,
+          background: '#161b22',
+          border: '1px solid #30363d',
+          borderRadius: 12,
+          boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}>
           <RepoChat
             language={editorLanguage}
             filePath={selectedFilePath}
             codeContext={selectedFileContent}
-            onImportCode={handleImportCodeFromChat}
+            onImportCode={(code) => { handleImportCodeFromChat(code); setChatOpen(false) }}
           />
         </div>
-      </section>
+      )}
     </main>
   )
 }
