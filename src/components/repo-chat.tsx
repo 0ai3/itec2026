@@ -1,138 +1,299 @@
-'use client'
+"use client";
 
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useMemo, useState } from "react";
 
 type ChatMessage = {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  importCode?: string
-}
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  importCode?: string;
+};
 
 type RepoChatProps = {
-  language: string
-  filePath: string | null
-  codeContext: string
-  onImportCode: (code: string) => void
-}
+  language: string;
+  filePath: string | null;
+  codeContext: string;
+  onImportCode: (code: string) => void;
+};
 
-const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-export default function RepoChat({ language, filePath, codeContext, onImportCode }: RepoChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [prompt, setPrompt] = useState('')
-  const [isSending, setIsSending] = useState(false)
-  const [chatError, setChatError] = useState<string | null>(null)
+export default function RepoChat({
+  language,
+  filePath,
+  codeContext,
+  onImportCode,
+}: RepoChatProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [prompt, setPrompt] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
 
-  const importEnabled = Boolean(filePath)
+  const importEnabled = Boolean(filePath);
+  const hasMessages = messages.length > 0;
   const messagePayload = useMemo(
-    () => messages.map((message) => ({ role: message.role, content: message.content })),
-    [messages]
-  )
+    () =>
+      messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    [messages],
+  );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+    event.preventDefault();
 
-    const userPrompt = prompt.trim()
+    const userPrompt = prompt.trim();
     if (!userPrompt) {
-      return
+      return;
     }
 
     const nextUserMessage: ChatMessage = {
       id: makeId(),
-      role: 'user',
+      role: "user",
       content: userPrompt,
-    }
+    };
 
-    setPrompt('')
-    setChatError(null)
-    setIsSending(true)
-    setMessages((prev) => [...prev, nextUserMessage])
+    setPrompt("");
+    setChatError(null);
+    setIsSending(true);
+    setMessages((prev) => [...prev, nextUserMessage]);
 
     try {
-      const response = await fetch('/api/ai-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/api/ai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           language,
           filePath,
           codeContext,
-          messages: [...messagePayload, { role: 'user', content: userPrompt }],
+          messages: [...messagePayload, { role: "user", content: userPrompt }],
         }),
-      })
+      });
 
-      const data = (await response.json()) as { reply?: string; importCode?: string; error?: string }
+      const data = (await response.json()) as {
+        reply?: string;
+        importCode?: string;
+        error?: string;
+      };
       if (!response.ok) {
-        throw new Error(data.error || 'Unable to get AI response')
+        throw new Error(data.error || "Unable to get AI response");
       }
 
       const nextAssistantMessage: ChatMessage = {
         id: makeId(),
-        role: 'assistant',
-        content: data.reply?.trim() || 'No response received.',
+        role: "assistant",
+        content: data.reply?.trim() || "No response received.",
         importCode: data.importCode?.trim() || undefined,
-      }
+      };
 
-      setMessages((prev) => [...prev, nextAssistantMessage])
+      setMessages((prev) => [...prev, nextAssistantMessage]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to get AI response'
-      setChatError(message)
+      const message =
+        error instanceof Error ? error.message : "Unable to get AI response";
+      setChatError(message);
     }
 
-    setIsSending(false)
-  }
+    setIsSending(false);
+  };
 
   return (
-    <section className="border border-white/10 rounded-xl p-3 flex flex-col min-h-65 max-h-90 bg-[#111a2c] text-gray-100">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="font-semibold">AI Chat</h3>
-        <p className="text-xs text-gray-400">{filePath ? `File: ${filePath}` : 'Select a file to import code'}</p>
+    <section
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+        background: "#0f141b",
+        color: "#c9d1d9",
+        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 10,
+          padding: "10px 12px",
+          borderBottom: "1px solid #21262d",
+          background: "#111826",
+        }}
+      >
+        <span
+          style={{ fontSize: 12, color: "#8b949e", letterSpacing: "0.04em" }}
+        >
+          CONTEXT
+        </span>
+        <span
+          title={filePath || ""}
+          style={{
+            fontSize: 11,
+            color: "#8b949e",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            maxWidth: 210,
+          }}
+        >
+          {filePath ? `File: ${filePath}` : "Select a file to import code"}
+        </span>
       </div>
 
-      <div className="flex-1 overflow-auto border border-white/10 rounded p-2 bg-[#0b1220]">
-        {messages.length === 0 ? (
-          <p className="text-sm text-gray-400">Ask for refactors, bug fixes, or new code snippets.</p>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          padding: 12,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          background: "#0d1117",
+        }}
+      >
+        {!hasMessages ? (
+          <div
+            style={{
+              border: "1px solid #21262d",
+              borderRadius: 8,
+              background: "#161b22",
+              padding: "12px 10px",
+              fontSize: 12,
+              color: "#8b949e",
+              lineHeight: 1.5,
+            }}
+          >
+            Ask for refactors, bug fixes, or fresh code for the active file.
+          </div>
         ) : (
-          <ul className="space-y-2">
-            {messages.map((message) => (
-              <li key={message.id} className="text-sm">
-                <p className="font-medium mb-1 text-gray-200">{message.role === 'user' ? 'You' : 'Assistant'}</p>
-                <p className="whitespace-pre-wrap text-gray-300">{message.content}</p>
-                {message.role === 'assistant' && message.importCode ? (
+          messages.map((message) => {
+            const isUser = message.role === "user";
+            return (
+              <article
+                key={message.id}
+                style={{
+                  alignSelf: isUser ? "flex-end" : "stretch",
+                  maxWidth: isUser ? "92%" : "100%",
+                  border: "1px solid #21262d",
+                  borderRadius: 8,
+                  background: isUser ? "#182236" : "#161b22",
+                  padding: "10px 10px 8px",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                    color: isUser ? "#58a6ff" : "#8b949e",
+                    marginBottom: 6,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {isUser ? "You" : "Assistant"}
+                </div>
+                <p
+                  style={{
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    color: "#c9d1d9",
+                  }}
+                >
+                  {message.content}
+                </p>
+                {message.role === "assistant" && message.importCode ? (
                   <button
                     type="button"
-                    onClick={() => onImportCode(message.importCode ?? '')}
+                    onClick={() => onImportCode(message.importCode ?? "")}
                     disabled={!importEnabled}
-                    className="mt-2 text-xs border border-white/20 rounded px-2 py-1 disabled:opacity-60 hover:bg-white/10"
-                    title={importEnabled ? 'Replace current file with this code' : 'Select a file first'}
+                    title={
+                      importEnabled
+                        ? "Replace current file with this code"
+                        : "Select a file first"
+                    }
+                    style={{
+                      marginTop: 9,
+                      padding: "5px 10px",
+                      borderRadius: 6,
+                      border: "1px solid #30363d",
+                      background: importEnabled
+                        ? "rgba(88,166,255,0.12)"
+                        : "transparent",
+                      color: importEnabled ? "#58a6ff" : "#6e7681",
+                      fontSize: 11,
+                      cursor: importEnabled ? "pointer" : "not-allowed",
+                    }}
                   >
                     Import code
                   </button>
                 ) : null}
-              </li>
-            ))}
-          </ul>
+              </article>
+            );
+          })
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="mt-2 flex gap-2">
+      <form
+        onSubmit={handleSubmit}
+        style={{
+          display: "flex",
+          gap: 8,
+          padding: 10,
+          borderTop: "1px solid #21262d",
+          background: "#0f141b",
+        }}
+      >
         <input
           type="text"
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Ask AI about this repo..."
-          className="flex-1 border border-white/20 rounded px-3 py-2 text-sm bg-[#0b1220] text-gray-100 placeholder:text-gray-500"
+          style={{
+            flex: 1,
+            border: "1px solid #30363d",
+            borderRadius: 6,
+            padding: "9px 10px",
+            fontSize: 12,
+            background: "#0d1117",
+            color: "#e6edf3",
+            outline: "none",
+          }}
         />
         <button
           type="submit"
           disabled={isSending || !prompt.trim()}
-          className="bg-white text-black rounded px-3 py-2 text-sm disabled:opacity-60"
+          style={{
+            padding: "9px 12px",
+            borderRadius: 6,
+            border: "1px solid #30363d",
+            background: isSending || !prompt.trim() ? "#161b22" : "#1f6feb",
+            color: "#ffffff",
+            fontSize: 12,
+            cursor: isSending || !prompt.trim() ? "not-allowed" : "pointer",
+            opacity: isSending || !prompt.trim() ? 0.75 : 1,
+          }}
         >
-          {isSending ? 'Sending...' : 'Send'}
+          {isSending ? "Sending..." : "Send"}
         </button>
       </form>
 
-      {chatError ? <p className="text-xs text-red-600 mt-2">{chatError}</p> : null}
+      {chatError ? (
+        <p
+          style={{
+            margin: 0,
+            padding: "8px 10px 10px",
+            fontSize: 11,
+            color: "#f85149",
+            borderTop: "1px solid #21262d",
+            background: "#0f141b",
+          }}
+        >
+          {chatError}
+        </p>
+      ) : null}
     </section>
-  )
+  );
 }

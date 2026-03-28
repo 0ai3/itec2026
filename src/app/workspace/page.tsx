@@ -197,8 +197,7 @@ export default function WorkspacePage() {
             background: "#0d1117",
           }}
         >
-          <SidebarItem title="Profile" href="/profile" />
-          <SidebarItem title="Pipelines" href="/pipelines" />
+          <SidebarItem title="Profile" href="/profile"/>
           <SidebarItem title="Dashboard" href="/" />
           <SidebarItem title="Extensions" href="/extensions" />
 

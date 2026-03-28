@@ -287,7 +287,6 @@ export default function ExtensionsPage() {
         >
           <SidebarItem title="Workspace" href="/workspace" />
           <SidebarItem title="Profile" href="/profile" />
-          <SidebarItem title="Pipelines" href="/pipelines" />
           <SidebarItem title="Dashboard" href="/" />
         </div>
 

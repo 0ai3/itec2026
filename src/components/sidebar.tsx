@@ -59,13 +59,6 @@ export default function Sidebar() {
           <span className={tooltip}>Extensions</span>
         </Link>
 
-        <Link
-          href="/source-control"
-          className={`${item} ${pathname === "/source-control" ? active : ""}`}
-        >
-          <GitBranch size={20} strokeWidth={1.6} />
-          <span className={tooltip}>Source Control</span>
-        </Link>
       </div>
 
       {/* SPACER */}

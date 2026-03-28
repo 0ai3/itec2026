@@ -14,6 +14,7 @@ import { onAuthStateChanged, updateProfile, type User } from "firebase/auth";
 import Navbar from "@/components/Navbar";
 import { auth, db } from "@/lib/firebase";
 
+
 export default function ProfilePage() {
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
 
@@ -275,7 +276,6 @@ export default function ProfilePage() {
             <Stat label="Repos" value={repoCount ?? "—"} />
             <Stat label="Commits" value={commitCount ?? "—"} />
             <Stat label="Stars" value={starCount ?? "—"} />
-            <Stat label="Pipelines" value={pipelineCount ?? "—"} />
             {metaMessage ? (
               <div
                 style={{
