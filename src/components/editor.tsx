@@ -7,7 +7,7 @@ type Yjs = typeof import('yjs')
 type YWebsocket = typeof import('y-websocket')
 type YMonaco = typeof import('y-monaco')
 
-type AiRange = {
+export type AiRange = {
 	startLineNumber: number
 	startColumn: number
 	endLineNumber: number

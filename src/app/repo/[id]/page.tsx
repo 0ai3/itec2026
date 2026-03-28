@@ -22,7 +22,7 @@ import {
 } from 'firebase/firestore'
 import { onAuthStateChanged, type User } from 'firebase/auth'
 import Navbar from '@/components/Navbar'
-import Editor from '@/components/editor'
+import Editor, { type AiRange } from '@/components/editor'
 import { auth, db } from '@/lib/firebase'
 import SyncedTerminal from '@/components/synced-terminal'
 import RepoChat from '@/components/repo-chat'
@@ -38,12 +38,7 @@ type RepoFileNode = {
   children?: RepoFileNode[]
 }
 
-type AiRange = {
-  startLineNumber: number
-  startColumn: number
-  endLineNumber: number
-  endColumn: number
-}
+const generateAiRangeId = () => Math.random().toString(36).slice(2, 10)
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
 
@@ -51,8 +46,59 @@ const getFullRangeForCode = (code: string): AiRange => {
   const lines = code.split('\n')
   const endLineNumber = Math.max(1, lines.length)
   const lastLine = lines[endLineNumber - 1] ?? ''
-  return { startLineNumber: 1, startColumn: 1, endLineNumber, endColumn: lastLine.length + 1 }
+  return {
+    startLineNumber: 1,
+    startColumn: 1,
+    endLineNumber,
+    endColumn: lastLine.length + 1,
+    id: generateAiRangeId(),
+    originalText: code,
+  }
 }
+
+const normalizeAiRange = (range: Partial<AiRange>, code: string): AiRange => {
+  const startLineNumber = Math.max(1, Math.floor(range.startLineNumber ?? 1))
+  const startColumn = Math.max(1, Math.floor(range.startColumn ?? 1))
+  const endLineNumber = Math.max(startLineNumber, Math.floor(range.endLineNumber ?? startLineNumber))
+  const endColumn =
+    endLineNumber === startLineNumber
+      ? Math.max(startColumn, Math.floor(range.endColumn ?? startColumn))
+      : Math.max(1, Math.floor(range.endColumn ?? 1))
+
+  let originalText = range.originalText ?? ''
+  if (!originalText) {
+    const lines = code.split('\n')
+    if (startLineNumber === endLineNumber) {
+      const line = lines[startLineNumber - 1] ?? ''
+      originalText = line.slice(startColumn - 1, endColumn - 1)
+    } else {
+      const partial = []
+      for (let lineNo = startLineNumber; lineNo <= endLineNumber; lineNo += 1) {
+        const line = lines[lineNo - 1] ?? ''
+        if (lineNo === startLineNumber) {
+          partial.push(line.slice(startColumn - 1))
+        } else if (lineNo === endLineNumber) {
+          partial.push(line.slice(0, endColumn - 1))
+        } else {
+          partial.push(line)
+        }
+      }
+      originalText = partial.join('\n')
+    }
+  }
+
+  return {
+    startLineNumber,
+    startColumn,
+    endLineNumber,
+    endColumn,
+    id: range.id ?? generateAiRangeId(),
+    originalText,
+  }
+}
+
+const normalizeAiRanges = (ranges: Array<Partial<AiRange>> = [], code = ''): AiRange[] =>
+  ranges.map((range) => normalizeAiRange(range, code))
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
 
@@ -456,8 +502,9 @@ export default function RepoEditorPage() {
       try {
         const res = await fetch(`/api/repo-files?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(repoId)}&filePath=${encodeURIComponent(selectedFilePath)}`)
         const data = (await res.json()) as { content?: string; aiRanges?: AiRange[]; error?: string }
-        if (!res.ok) throw new Error(data.error || 'Unable to load file')
-        setSelectedFileContent(data.content ?? ''); setSelectedFileAiRanges(data.aiRanges ?? [])
+        const content = data.content ?? ''
+        setSelectedFileContent(content)
+        setSelectedFileAiRanges(normalizeAiRanges(data.aiRanges ?? [], content))
         setEditorAiRangesToken(p => p + 1); setEditorReplaceSource('user'); setFileMessage(null)
       } catch (e) { if (e instanceof Error) setErrorMessage(e.message) }
       setIsLoadingSelectedFile(false)
