@@ -119,7 +119,7 @@ export default function LoginPage() {
         H * 0.2,
         W * 0.35,
       );
-      g1.addColorStop(0, "rgba(63,185,80,.06)");
+      g1.addColorStop(0, "rgba(88,166,255,.06)");
       g1.addColorStop(1, "transparent");
       ctx.fillStyle = g1;
       ctx.fillRect(0, 0, W, H);
@@ -151,7 +151,7 @@ export default function LoginPage() {
 
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.s, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(63,185,80,${0.1 + force * 0.25})`;
+        ctx.fillStyle = `rgba(88,166,255,${0.1 + force * 0.25})`;
         ctx.fill();
       });
 
@@ -224,7 +224,7 @@ export default function LoginPage() {
   const inputStyle = (field: string): React.CSSProperties => ({
     width: "100%",
     background: "#0d1117",
-    border: `1px solid ${focusedField === field ? "#3fb950" : "#21262d"}`,
+    border: `1px solid ${focusedField === field ? "#58a6ff" : "#21262d"}`,
     borderRadius: 4,
     padding: "11px 14px",
     fontSize: 13,
@@ -233,7 +233,7 @@ export default function LoginPage() {
     outline: "none",
     transition: "border-color .2s, box-shadow .2s",
     boxShadow:
-      focusedField === field ? "0 0 0 3px rgba(63,185,80,.12)" : "none",
+      focusedField === field ? "0 0 0 3px rgba(88,166,255,.12)" : "none",
     cursor: "none",
   });
 
@@ -258,7 +258,7 @@ export default function LoginPage() {
           position: "fixed",
           width: 8,
           height: 8,
-          background: "#3fb950",
+          background: "#58a6ff",
           borderRadius: "50%",
           pointerEvents: "none",
           zIndex: 9999,
@@ -271,7 +271,7 @@ export default function LoginPage() {
           position: "fixed",
           width: 32,
           height: 32,
-          border: "1px solid rgba(63,185,80,.4)",
+          border: "1px solid rgba(88,166,255,.4)",
           borderRadius: "50%",
           pointerEvents: "none",
           zIndex: 9998,
@@ -318,13 +318,13 @@ export default function LoginPage() {
               display: "block",
               width: 20,
               height: 1,
-              background: "#3fb950",
+              background: "#58a6ff",
             }}
           />
           <span
             style={{
               fontSize: 10,
-              color: "#3fb950",
+              color: "#58a6ff",
               letterSpacing: "0.3em",
               fontWeight: 700,
             }}
@@ -354,7 +354,7 @@ export default function LoginPage() {
             gap: 8,
           }}
         >
-          {["#f85149", "#e3b341", "#3fb950"].map((c, i) => (
+          {["#f85149", "#e3b341", "#58a6ff"].map((c, i) => (
             <div
               key={i}
               style={{
@@ -396,7 +396,7 @@ export default function LoginPage() {
                 fontFamily: "'JetBrains Mono',monospace",
               }}
             >
-              <span style={{ color: "#3fb950" }}>✦</span> itecify auth --login
+              <span style={{ color: "#58a6ff" }}>✦</span> itecify auth --login
             </div>
             <h1
               style={{
@@ -410,7 +410,7 @@ export default function LoginPage() {
             >
               Access your
               <br />
-              <span style={{ color: "#3fb950" }}>workspace.</span>
+              <span style={{ color: "#58a6ff" }}>workspace.</span>
             </h1>
           </div>
 
@@ -518,7 +518,7 @@ export default function LoginPage() {
               disabled={isSubmitting}
               style={{
                 width: "100%",
-                background: isSubmitting ? "#21262d" : "#3fb950",
+                background: isSubmitting ? "#21262d" : "#58a6ff",
                 color: isSubmitting ? "#8b949e" : "#03070f",
                 border: "none",
                 borderRadius: 3,
@@ -617,9 +617,9 @@ export default function LoginPage() {
               <Link
                 href="/register"
                 style={{
-                  color: "#3fb950",
+                  color: "#58a6ff",
                   textDecoration: "none",
-                  borderBottom: "1px dotted rgba(63,185,80,.5)",
+                  borderBottom: "1px dotted rgba(88,166,255,.5)",
                 }}
               >
                 Create account

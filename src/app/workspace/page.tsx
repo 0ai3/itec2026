@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   collection,
   collectionGroup,
@@ -15,20 +15,8 @@ import {
   type Timestamp,
 } from "firebase/firestore";
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
-import Navbar from "@/components/Navbar";
-
-/* ─── Configurare Design (Consistent cu Repo Editor) ────────────────────── */
-const THEME = {
-  bg: "#0d1117",
-  bgSecondary: "#161b22",
-  border: "#21262d",
-  textMain: "#e6edf3",
-  textSecondary: "#8b949e",
-  accent: "#58a6ff",
-  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-};
 
 type RepoRecord = {
   id: string;
@@ -48,52 +36,57 @@ type InvitedRepoRecord = {
   ownerEmail?: string;
 };
 
-const normalizeEmail = (email: string) => email.trim().toLowerCase();
+const normalizeEmail = (e: string) => e.trim().toLowerCase();
 
 export default function WorkspacePage() {
   const router = useRouter();
-  const pathname = usePathname();
-
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
   const [repos, setRepos] = useState<RepoRecord[]>([]);
   const [invitedRepos, setInvitedRepos] = useState<InvitedRepoRecord[]>([]);
   const [repoName, setRepoName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isJoiningRepoKey, setIsJoiningRepoKey] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cursorRef = useRef<HTMLDivElement>(null);
+  const ringRef = useRef<HTMLDivElement>(null);
+
+  // ── AUTH
   useEffect(() => {
-    if (!auth) return;
-    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
-      setUser(nextUser);
-      if (!nextUser) router.replace("/login");
+    if (!auth) {
+      setAuthChecked(true);
+      return;
+    }
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (!u) router.replace("/login");
+      else setAuthChecked(true);
     });
-    return () => unsubscribe();
+    return () => unsub();
   }, [router]);
 
+  // ── DATA
   useEffect(() => {
     const load = async () => {
       if (!db || !user) return;
       try {
-        const repoQuery = query(
-          collection(db, "users", user.uid, "repos"),
-          orderBy("createdAt", "desc"),
+        const snap = await getDocs(
+          query(
+            collection(db, "users", user.uid, "repos"),
+            orderBy("createdAt", "desc"),
+          ),
         );
-        const snapshot = await getDocs(repoQuery);
-        setRepos(
-          snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
-        );
-
+        setRepos(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
         const email = normalizeEmail(user.email || "");
         const allRepos = await getDocs(collectionGroup(db, "repos"));
         const invites: InvitedRepoRecord[] = [];
-
-        for (const repoDoc of allRepos.docs) {
-          const parts = repoDoc.ref.path.split("/");
-          const ownerUid = parts[1];
-          const repoId = parts[3];
+        for (const rd of allRepos.docs) {
+          const parts = rd.ref.path.split("/");
+          const ownerUid = parts[1],
+            repoId = parts[3];
           if (ownerUid === user.uid) continue;
-
-          const inviteDoc = await getDoc(
+          const inv = await getDoc(
             doc(
               db,
               "users",
@@ -104,8 +97,8 @@ export default function WorkspacePage() {
               encodeURIComponent(email),
             ),
           );
-          if (inviteDoc.exists()) {
-            const data = repoDoc.data();
+          if (inv.exists()) {
+            const data = rd.data();
             invites.push({
               id: repoId,
               name: data.name,
@@ -117,11 +110,128 @@ export default function WorkspacePage() {
         }
         setInvitedRepos(invites);
       } catch (e) {
-        console.error("Error loading workspace:", e);
+        console.error(e);
       }
     };
     load();
   }, [user]);
+
+  // ── CURSOR
+  useEffect(() => {
+    if (!authChecked) return;
+    let mx = 0,
+      my = 0,
+      rx = 0,
+      ry = 0,
+      raf: number;
+    const onMove = (e: MouseEvent) => {
+      mx = e.clientX;
+      my = e.clientY;
+      if (cursorRef.current) {
+        cursorRef.current.style.left = mx - 4 + "px";
+        cursorRef.current.style.top = my - 4 + "px";
+      }
+    };
+    const loop = () => {
+      rx += (mx - rx) * 0.12;
+      ry += (my - ry) * 0.12;
+      if (ringRef.current) {
+        ringRef.current.style.left = rx - 16 + "px";
+        ringRef.current.style.top = ry - 16 + "px";
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    document.addEventListener("mousemove", onMove);
+    loop();
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      cancelAnimationFrame(raf);
+    };
+  }, [authChecked]);
+
+  // ── CANVAS PARTICLES (lighter density — workspace context)
+  useEffect(() => {
+    if (!authChecked) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    let W = 0,
+      H = 0,
+      mx = -999,
+      my = -999,
+      raf: number;
+    let particles: {
+      x: number;
+      y: number;
+      ox: number;
+      oy: number;
+      vx: number;
+      vy: number;
+      s: number;
+    }[] = [];
+    const resize = () => {
+      W = canvas.width = window.innerWidth;
+      H = canvas.height = window.innerHeight;
+      particles = [];
+      for (let x = 0; x < W; x += 60)
+        for (let y = 0; y < H; y += 60)
+          particles.push({
+            x,
+            y,
+            ox: x,
+            oy: y,
+            vx: 0,
+            vy: 0,
+            s: Math.random() * 0.8 + 0.2,
+          });
+    };
+    const onMove = (e: MouseEvent) => {
+      mx = e.clientX;
+      my = e.clientY;
+    };
+    const draw = () => {
+      ctx.clearRect(0, 0, W, H);
+      const g = ctx.createRadialGradient(
+        W * 0.5,
+        H * 0.3,
+        0,
+        W * 0.5,
+        H * 0.3,
+        W * 0.4,
+      );
+      g.addColorStop(0, "rgba(88,166,255,.04)");
+      g.addColorStop(1, "transparent");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+      particles.forEach((p) => {
+        const dx = mx - p.x,
+          dy = my - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const force = Math.max(0, 1 - dist / 100);
+        p.vx += (p.ox - p.x) * 0.06 - dx * force * 0.07;
+        p.vy += (p.oy - p.y) * 0.06 - dy * force * 0.07;
+        p.vx *= 0.82;
+        p.vy *= 0.82;
+        p.x += p.vx;
+        p.y += p.vy;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.s, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(88,166,255,${0.07 + force * 0.25})`;
+        ctx.fill();
+      });
+      raf = requestAnimationFrame(draw);
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    document.addEventListener("mousemove", onMove);
+    draw();
+    return () => {
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("mousemove", onMove);
+      cancelAnimationFrame(raf);
+    };
+  }, [authChecked]);
 
   const handleCreateRepo = async () => {
     if (!db || !user || !repoName.trim()) return;
@@ -153,220 +263,496 @@ export default function WorkspacePage() {
     setIsJoiningRepoKey(null);
   };
 
+  if (!authChecked) return null;
+
+  const displayName = user?.email?.split("@")[0] ?? "user";
+
   return (
     <main
       style={{
+        minHeight: "100vh",
+        background: "#03070f",
+        color: "#e6edf3",
+        fontFamily: "'JetBrains Mono', monospace",
+        position: "relative",
+        cursor: "none",
         display: "flex",
         flexDirection: "column",
-        minHeight: "100vh",
-        background: "#0d1117",
-        color: "#e6edf3",
-        fontFamily: "'JetBrains Mono','Fira Code',monospace",
       }}
     >
-      <Navbar />
+      {/* CURSOR */}
+      <div
+        ref={cursorRef}
+        style={{
+          position: "fixed",
+          width: 8,
+          height: 8,
+          background: "#58a6ff",
+          borderRadius: "50%",
+          pointerEvents: "none",
+          zIndex: 9999,
+          mixBlendMode: "screen",
+        }}
+      />
+      <div
+        ref={ringRef}
+        style={{
+          position: "fixed",
+          width: 32,
+          height: 32,
+          border: "1px solid rgba(88,166,255,.4)",
+          borderRadius: "50%",
+          pointerEvents: "none",
+          zIndex: 9998,
+        }}
+      />
 
-      {/* top bar */}
+      {/* CANVAS */}
+      <canvas
+        ref={canvasRef}
+        style={{ position: "fixed", inset: 0, zIndex: 0 }}
+      />
+
+      {/* SCANLINES */}
       <div
         style={{
-          height: 42,
-          borderBottom: "1px solid #21262d",
-          background: "#161b22",
+          position: "fixed",
+          inset: 0,
+          zIndex: 2,
+          pointerEvents: "none",
+          background:
+            "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.04) 2px,rgba(0,0,0,.04) 4px)",
+        }}
+      />
+
+
+      {/* BREADCRUMB BAR — same style as landing bottom bar */}
+      <div
+        style={{
+          position: "relative",
+          zIndex: 20,
+          borderBottom: "1px solid #161b22",
+          background: "rgba(3,7,15,.85)",
+          backdropFilter: "blur(12px)",
+          padding: "8px 40px",
           display: "flex",
           alignItems: "center",
-          padding: "0 16px",
-          fontSize: 12,
-          color: "#8b949e",
+          gap: 20,
+          fontSize: 10,
+          color: "#484f58",
+          fontFamily: "'JetBrains Mono', monospace",
         }}
       >
-        workspace
+        <div
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "#3fb950",
+            animation: "pulse 2s infinite",
+          }}
+        />
+        <span style={{ color: "#3fb950" }}>synced</span>
+        <span>workspace</span>
+        <span>⎇ main</span>
+        <span style={{ marginLeft: "auto" }}>
+          <span style={{ color: "#58a6ff" }}>{displayName}</span>
+          <span style={{ color: "#30363d" }}> · </span>
+          {repos.length} repos · {invitedRepos.length} invites
+        </span>
       </div>
 
+      {/* PAGE CONTENT */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "1fr",
+          position: "relative",
+          zIndex: 10,
           flex: 1,
-          overflow: "hidden",
+          padding: "40px 8vw 80px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 32,
         }}
       >
-        {/* content */}
+        {/* PAGE HEADER */}
+        <div style={{ animation: "fadein .5s both" }}>
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: "0.3em",
+              color: "#58a6ff",
+              fontWeight: 700,
+              marginBottom: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            <span
+              style={{
+                display: "block",
+                width: 20,
+                height: 1,
+                background: "#58a6ff",
+              }}
+            />
+            workspace
+          </div>
+          <div
+            style={{
+              fontFamily: "'Syne', sans-serif",
+              fontSize: "clamp(22px,2.5vw,34px)",
+              fontWeight: 800,
+              letterSpacing: "-0.03em",
+              color: "#e6edf3",
+              lineHeight: 1.1,
+            }}
+          >
+            Hello, <span style={{ color: "#58a6ff" }}>{displayName}</span>.
+          </div>
+          <div style={{ fontSize: 12, color: "#8b949e", marginTop: 6 }}>
+            Manage your repositories and team invites.
+          </div>
+        </div>
+
+        {/* CREATE REPO ROW */}
         <div
           style={{
             display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
+            alignItems: "center",
+            gap: 10,
+            animation: "fadein .5s .1s both",
           }}
         >
-          {/* header */}
-          <div style={{ padding: 20, borderBottom: "1px solid #21262d" }}>
-            <div style={{ fontSize: 18, fontWeight: 600 }}>Workspace</div>
-            <div style={{ fontSize: 12, color: "#8b949e", marginTop: 4 }}>
-              Manage repos and invites; Firestore-backed.
-            </div>
-
-            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  value={repoName}
-                  onChange={(e) => setRepoName(e.target.value)}
-                  placeholder="New repository name..."
-                  style={{
-                    background: "#0d1117",
-                    color: "#e6edf3",
-                    border: "1px solid #30363d",
-                    padding: "8px 10px",
-                    fontSize: 12,
-                    borderRadius: 6,
-                    outline: "none",
-                    minWidth: 240,
-                  }}
-                />
-                <button
-                  onClick={handleCreateRepo}
-                  disabled={isCreating || !repoName.trim()}
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: 6,
-                    border: "none",
-                    background: "#58a6ff",
-                    color: "#0d1117",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    opacity: isCreating || !repoName.trim() ? 0.6 : 1,
-                  }}
-                >
-                  {isCreating ? "..." : "+ Create"}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* panels */}
-          <div
+          <input
+            value={repoName}
+            onChange={(e) => setRepoName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateRepo()}
+            placeholder="new-repository-name..."
             style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 16,
-              padding: 16,
-              overflow: "auto",
+              background: "#0d1117",
+              color: "#e6edf3",
+              border: "1px solid #21262d",
+              padding: "10px 14px",
+              fontSize: 12,
+              borderRadius: 4,
+              outline: "none",
+              fontFamily: "'JetBrains Mono', monospace",
+              width: 280,
+              transition: "border-color .2s",
+            }}
+            onFocus={(e) => (e.currentTarget.style.borderColor = "#58a6ff")}
+            onBlur={(e) => (e.currentTarget.style.borderColor = "#21262d")}
+          />
+          <button
+            onClick={handleCreateRepo}
+            disabled={isCreating || !repoName.trim()}
+            style={{
+              padding: "10px 20px",
+              borderRadius: 4,
+              border: "none",
+              background: "#58a6ff",
+              color: "#03070f",
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.06em",
+              cursor: "pointer",
+              opacity: isCreating || !repoName.trim() ? 0.5 : 1,
+              transition: "opacity .2s",
             }}
           >
-            <Panel title={`Invites (${invitedRepos.length})`}>
-              {invitedRepos.length === 0 ? (
-                <div style={{ padding: 12, fontSize: 12, color: "#8b949e" }}>
-                  No pending invites.
-                </div>
-              ) : (
-                invitedRepos.map((repo, idx) => (
-                  <div
-                    key={repo.id}
-                    style={{
-                      padding: 12,
-                      borderBottom:
-                        idx === invitedRepos.length - 1
-                          ? "none"
-                          : "1px solid #30363d",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>
-                        {repo.name}
-                      </div>
-                      <div style={{ fontSize: 11, color: "#8b949e" }}>
-                        Invited by {repo.ownerName || repo.ownerEmail}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleJoinRepo(repo)}
-                      disabled={isJoiningRepoKey === repo.id}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 6,
-                        border: "1px solid #30363d",
-                        background: "#0d1117",
-                        color: "#e6edf3",
-                        fontSize: 12,
-                        cursor: "pointer",
-                        opacity: isJoiningRepoKey === repo.id ? 0.6 : 1,
-                      }}
-                    >
-                      {isJoiningRepoKey === repo.id ? "Joining..." : "Join"}
-                    </button>
-                  </div>
-                ))
-              )}
-            </Panel>
+            {isCreating ? "..." : "▶ create repo"}
+          </button>
+        </div>
 
-            <Panel title={`Your repositories (${repos.length})`}>
-              {repos.length === 0 ? (
-                <div style={{ padding: 12, fontSize: 12, color: "#8b949e" }}>
-                  No repositories yet. Create one above.
-                </div>
-              ) : (
-                repos.map((repo, idx) => (
-                  <Link
-                    key={repo.id}
-                    href={`/repo/${repo.id}`}
+        {/* TWO PANELS */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 2fr",
+            gap: 16,
+            animation: "fadein .5s .2s both",
+          }}
+        >
+          {/* INVITES PANEL */}
+          <div
+            style={{
+              background: "#0d1117",
+              border: "1px solid #21262d",
+              borderRadius: 6,
+              overflow: "hidden",
+            }}
+          >
+            {/* panel header */}
+            <div
+              style={{
+                padding: "10px 16px",
+                background: "#161b22",
+                borderBottom: "1px solid #21262d",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 11,
+                color: "#8b949e",
+              }}
+            >
+              <span>invites</span>
+              {invitedRepos.length > 0 && (
+                <span
+                  style={{
+                    background: "rgba(227,179,65,.15)",
+                    color: "#e3b341",
+                    border: "1px solid rgba(227,179,65,.25)",
+                    fontSize: 9,
+                    fontWeight: 700,
+                    padding: "2px 7px",
+                    borderRadius: 2,
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  {invitedRepos.length} PENDING
+                </span>
+              )}
+            </div>
+
+            {invitedRepos.length === 0 ? (
+              <div style={{ padding: "16px", fontSize: 11, color: "#484f58" }}>
+                no pending invites.
+              </div>
+            ) : (
+              invitedRepos.map((repo, idx) => (
+                <div
+                  key={repo.id}
+                  style={{
+                    padding: "12px 16px",
+                    borderBottom:
+                      idx < invitedRepos.length - 1
+                        ? "1px solid #161b22"
+                        : "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>
+                      {repo.name}
+                    </div>
+                    <div
+                      style={{ fontSize: 10, color: "#8b949e", marginTop: 2 }}
+                    >
+                      <span style={{ color: "#e3b341" }}>↗</span>{" "}
+                      {repo.ownerName || repo.ownerEmail}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleJoinRepo(repo)}
+                    disabled={isJoiningRepoKey === repo.id}
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: 12,
-                      borderBottom:
-                        idx === repos.length - 1 ? "none" : "1px solid #30363d",
-                      textDecoration: "none",
-                      color: "#e6edf3",
+                      padding: "6px 0",
+                      borderRadius: 3,
+                      border: "1px solid #21262d",
+                      background: "transparent",
+                      color: "#58a6ff",
+                      fontSize: 11,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      cursor: "pointer",
+                      opacity: isJoiningRepoKey === repo.id ? 0.5 : 1,
+                      transition: "border-color .2s, background .2s",
+                      width: "100%",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "rgba(88,166,255,.08)";
+                      e.currentTarget.style.borderColor = "#58a6ff";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.borderColor = "#21262d";
                     }}
                   >
-                    <div>
-                      <div style={{ fontSize: 13 }}>{repo.name}</div>
-                      <div style={{ fontSize: 11, color: "#8b949e" }}>
-                        ID: {repo.id}
-                      </div>
-                    </div>
-                    <span style={{ fontSize: 11, color: "#58a6ff" }}>open</span>
-                  </Link>
-                ))
-              )}
-            </Panel>
+                    {isJoiningRepoKey === repo.id ? "joining..." : "join →"}
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* REPOS PANEL */}
+          <div
+            style={{
+              background: "#0d1117",
+              border: "1px solid #21262d",
+              borderRadius: 6,
+              overflow: "hidden",
+            }}
+          >
+            {/* panel header */}
+            <div
+              style={{
+                padding: "10px 16px",
+                background: "#161b22",
+                borderBottom: "1px solid #21262d",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 11,
+                color: "#8b949e",
+              }}
+            >
+              <span>repositories</span>
+              <span style={{ color: "#484f58" }}>{repos.length} total</span>
+            </div>
+
+            {repos.length === 0 ? (
+              <div style={{ padding: "16px", fontSize: 11, color: "#484f58" }}>
+                no repositories yet. create one above.
+              </div>
+            ) : (
+              repos.map((repo, idx) => (
+                <RepoRow
+                  key={repo.id}
+                  repo={repo}
+                  isLast={idx === repos.length - 1}
+                />
+              ))
+            )}
           </div>
         </div>
       </div>
+
+      {/* BOTTOM BAR — identical to landing */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 20,
+          borderTop: "1px solid #161b22",
+          background: "rgba(3,7,15,.9)",
+          backdropFilter: "blur(12px)",
+          padding: "8px 40px",
+          display: "flex",
+          alignItems: "center",
+          gap: 24,
+          fontSize: 10,
+          color: "#484f58",
+          fontFamily: "'JetBrains Mono', monospace",
+        }}
+      >
+        <div
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "#3fb950",
+            animation: "pulse 2s infinite",
+          }}
+        />
+        <span style={{ color: "#3fb950" }}>live</span>
+        <span>workspace</span>
+        <span>⎇ main</span>
+        <span>✓ firestore synced</span>
+        <span style={{ marginLeft: "auto" }}>
+          iTECify v0.1.0-alpha · iTEC 2026
+        </span>
+      </div>
+
+      <style jsx global>{`
+        @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700;800&family=Syne:wght@700;800&display=swap");
+
+        @keyframes fadein {
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes pulse {
+          0%,
+          100% {
+            box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.4);
+          }
+          50% {
+            box-shadow: 0 0 0 6px rgba(63, 185, 80, 0);
+          }
+        }
+
+        * {
+          box-sizing: border-box;
+        }
+        body {
+          margin: 0;
+          padding-bottom: 44px;
+        }
+        input::placeholder {
+          color: #30363d;
+        }
+      `}</style>
     </main>
   );
 }
 
-function Panel({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function RepoRow({ repo, isLast }: { repo: RepoRecord; isLast: boolean }) {
+  const [hovered, setHovered] = useState(false);
+  const isCollab = repo.role === "collaborator";
   return (
-    <div
+    <Link
+      href={`/repo/${repo.id}`}
       style={{
-        border: "1px solid #30363d",
-        background: "#161b22",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "12px 16px",
+        borderBottom: isLast ? "none" : "1px solid #161b22",
+        textDecoration: "none",
+        color: "#e6edf3",
+        background: hovered ? "rgba(88,166,255,.04)" : "transparent",
+        transition: "background .15s",
       }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      <div
+      <div>
+        <div
+          style={{
+            fontSize: 13,
+            color: hovered ? "#79c0ff" : "#e6edf3",
+            transition: "color .15s",
+          }}
+        >
+          {repo.name}
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginTop: 2,
+          }}
+        >
+          <span style={{ fontSize: 10, color: "#484f58" }}>{repo.id}</span>
+          <span
+            style={{ fontSize: 10, color: isCollab ? "#bc8cff" : "#3fb950" }}
+          >
+            {isCollab ? "● collaborator" : "● owner"}
+          </span>
+        </div>
+      </div>
+      <span
         style={{
-          padding: "8px 12px",
-          borderBottom: "1px solid #30363d",
-          fontSize: 12,
-          color: "#8b949e",
+          fontSize: 11,
+          color: "#58a6ff",
+          opacity: hovered ? 1 : 0.4,
+          transition: "opacity .15s",
         }}
       >
-        {title}
-      </div>
-      <div>{children}</div>
-    </div>
+        open →
+      </span>
+    </Link>
   );
 }

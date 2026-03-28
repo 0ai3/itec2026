@@ -599,8 +599,7 @@ export default function ProfilePage() {
                 display: "grid",
                 marginTop: 125,
                 gap: 12,
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(300px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
                 alignItems: "start",
               }}
             >
