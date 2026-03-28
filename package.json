@@ -9,6 +9,7 @@
     "dev:collab": "concurrently -n web,collab -c auto \"npm:dev\" \"npm:collab:server\"",
     "dev:collab:lan": "concurrently -n web,collab -c auto \"npm:dev:lan\" \"npm:collab:server\"",
     "dev:collab:lan:autoip": "sh ./scripts/dev-collab-lan-autoip.sh",
+    "dev:collab:lan:autoip:win": "scripts\\dev-collab-lan-autoip.cmd",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
