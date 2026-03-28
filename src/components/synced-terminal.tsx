@@ -22,6 +22,7 @@ const setYTextValue = (yText: import('yjs').Text, value: string) => {
 
 const isNodeCommand = (command: string) => /^(npm|npx|pnpm|yarn|node)\b/.test(command)
 const isPythonCommand = (command: string) => /^(python|python3|pip|pip3)\b/.test(command)
+const isRustCommand = (command: string) => /^(rustc|cargo)\b/.test(command)
 const inputRequestPattern = /(EOFError|EOF when reading a line|No line found)/i
 
 const resolveExecutionImage = (imageValue: string, commandValue: string, defaultImageValue: string) => {
@@ -38,6 +39,10 @@ const resolveExecutionImage = (imageValue: string, commandValue: string, default
 
   if (isPythonCommand(trimmedCommand)) {
     return 'python:3.11-alpine'
+  }
+
+  if (isRustCommand(trimmedCommand)) {
+    return 'rust:latest'
   }
 
   return trimmedImage || 'alpine:3.20'

@@ -123,6 +123,9 @@ const getLanguageFromFilePath = (filePath: string | null) => {
   if (filePath.endsWith('.py')) return 'python'
   if (filePath.endsWith('.md')) return 'markdown'
   if (filePath.endsWith('.cpp')) return 'cpp'
+  if (filePath.endsWith('.c')) return 'c'
+  if (filePath.endsWith('.java')) return 'java'
+  if (filePath.endsWith('.rs')) return 'rust'
   return 'plaintext'
 }
 
@@ -135,6 +138,7 @@ const getRuntimeConfigForFilePath = (filePath: string | null) => {
   if (filePath.endsWith('.cpp') || filePath.endsWith('.cc') || filePath.endsWith('.cxx')) return { image: 'gcc:latest', command: `g++ ${JSON.stringify(filePath)} -o out_bin && ./out_bin` }
   if (filePath.endsWith('.c')) return { image: 'gcc:latest', command: `gcc ${JSON.stringify(filePath)} -o out_bin && ./out_bin` }
   if (filePath.endsWith('.java')) return { image: 'openjdk:21-jdk', command: `java ${JSON.stringify(filePath)}` }
+  if (filePath.endsWith('.rs')) return { image: 'rust:latest', command: `rustc ${JSON.stringify(filePath)} -O -o out_bin && ./out_bin` }
   return { image: 'alpine:3.20', command: `cat ${JSON.stringify(filePath)}` }
 }
 
@@ -170,6 +174,7 @@ const FILE_ICONS: Record<string, { icon: string; color: string }> = {
   cpp: { icon: 'C+', color: '#f34b7d' },
   c: { icon: 'C', color: '#555555' },
   java: { icon: 'JV', color: '#b07219' },
+  rs: { icon: 'RS', color: '#dea584' },
 }
 
 function FileIcon({ name }: { name: string }) {

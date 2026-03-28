@@ -69,6 +69,15 @@ const buildShellCommand = (command: string, stdin: string) => {
     return `cat <<'${delimiter}' | ${command}\n${stdin}\n${delimiter}`
 }
 
+const withRuntimePath = (image: string, command: string) => {
+    const lower = image.toLowerCase()
+    if (lower.startsWith('rust:') || lower.includes('/rust:')) {
+        return `export PATH=/usr/local/cargo/bin:$PATH; ${command}`
+    }
+
+    return command
+}
+
 const writeWorkspaceFromDb = async (ownerUid: string, repoId: string) => {
     await ensureRepoInitialized(ownerUid, repoId)
     const entries = await listRepoEntries(ownerUid, repoId)
@@ -114,7 +123,7 @@ export async function POST(req: Request) {
             },
         })
 
-        const wrappedCommand = buildShellCommand(command, stdin)
+        const wrappedCommand = withRuntimePath(image, buildShellCommand(command, stdin))
         const TIMEOUT_MS = 30_000
 
         const runPromise = async () => {
@@ -123,7 +132,7 @@ export async function POST(req: Request) {
                 Cmd: ['sh', '-lc', wrappedCommand],
                 WorkingDir: '/workspace',
                 HostConfig: {
-                    AutoRemove: true,
+                    AutoRemove: false,
                     Binds: [`${tempRepoRoot}:/workspace`],
                     Memory: 256 * 1024 * 1024,
                     NanoCpus: 2_000_000_000,
@@ -180,6 +189,13 @@ export async function POST(req: Request) {
                   
         return NextResponse.json({ error: message, output: message }, { status })
     } finally {
+        if (containerForCleanup) {
+            try {
+                await (containerForCleanup as Docker.Container).remove({ force: true })
+            } catch {
+            }
+        }
+
         if (tempRepoRoot) {
             try {
                 await fs.rm(tempRepoRoot, { recursive: true, force: true })
