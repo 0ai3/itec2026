@@ -34,10 +34,6 @@ export default function CharacterLandingPage() {
     return unsubscribe;
   }, [router]);
 
-  if (!authChecked) {
-    return null;
-  }
-
   // ── TERMINAL LINES
   const LINES = [
     { t: "prompt", text: "$ git clone https://itecify.dev/sandbox-api" },
@@ -73,6 +69,8 @@ export default function CharacterLandingPage() {
 
   // ── CUSTOM CURSOR
   useEffect(() => {
+    if (!authChecked) return;
+
     let mx = 0,
       my = 0,
       rx = 0,
@@ -104,10 +102,12 @@ export default function CharacterLandingPage() {
       document.removeEventListener("mousemove", onMove);
       cancelAnimationFrame(raf);
     };
-  }, []);
+  }, [authChecked]);
 
   // ── CANVAS PARTICLE GRID
   useEffect(() => {
+    if (!authChecked) return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -211,10 +211,12 @@ export default function CharacterLandingPage() {
       document.removeEventListener("mousemove", onMove);
       cancelAnimationFrame(raf);
     };
-  }, []);
+  }, [authChecked]);
 
   // ── TERMINAL TYPEWRITER
   useEffect(() => {
+    if (!authChecked) return;
+
     const body = termRef.current;
     if (!body) return;
     let li = 0;
@@ -245,10 +247,12 @@ export default function CharacterLandingPage() {
 
     timeout = setTimeout(addLine, 900);
     return () => clearTimeout(timeout);
-  }, []);
+  }, [authChecked]);
 
   // ── STATS COUNTER
   useEffect(() => {
+    if (!authChecked) return;
+
     const count = (el: HTMLDivElement | null, target: number) => {
       if (!el) return;
       let v = 0;
@@ -265,9 +269,9 @@ export default function CharacterLandingPage() {
       count(s3Ref.current, 9200);
     }, 1200);
     return () => clearTimeout(t);
-  }, []);
+  }, [authChecked]);
 
-  return (
+  return authChecked ? (
     <main
       style={{
         height: "100vh",
@@ -735,5 +739,5 @@ export default function CharacterLandingPage() {
         }
       `}</style>
     </main>
-  );
+  ) : null;
 }
