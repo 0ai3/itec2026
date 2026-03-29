@@ -227,9 +227,8 @@ function FileIcon({ name }: { name: string }) {
 
 /* ─── Explorer Sync Button Wrapper ───────────────────────────────────────── */
 function ExplorerSyncWrapper({ ownerUid, repoId }: { ownerUid: string, repoId: string }) {
-  // Sincronizează doar din folderul dedicat repo-ului (izolare ca pe cloud)
-  const repoDiskPath = `C:/Users/Petri/Documents/GitHub/itec2026/repos/${repoId}`;
-  return <ExplorerSyncBtn ownerUid={ownerUid} repoId={repoId} repoDiskPath={repoDiskPath} />;
+  // Sincronizare pe folderul dedicat repo-ului la server (doar conținutul repo-ului)
+  return <ExplorerSyncBtn ownerUid={ownerUid} repoId={repoId} />;
 }
 
 function FileTree({

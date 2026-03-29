@@ -465,7 +465,7 @@ export default function SyncedTerminal({
 
       {/* ── Output: xterm.js terminal ── */}
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-        <XTermTerminal />
+        <XTermTerminal ownerUid={ownerUid} repoId={repoId} />
 
         {/* ── Input ── */}
         <div style={{

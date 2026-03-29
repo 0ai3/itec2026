@@ -5,7 +5,12 @@ import "xterm/css/xterm.css";
 
 const TERMINAL_WS_URL = "ws://localhost:3001";
 
-export default function XTermTerminal() {
+type XTermTerminalProps = {
+  ownerUid?: string | null;
+  repoId?: string;
+};
+
+export default function XTermTerminal({ ownerUid, repoId }: XTermTerminalProps) {
   const xtermRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -57,7 +62,12 @@ export default function XTermTerminal() {
     setTimeout(resizeTerminal, 0);
 
     // WebSocket
-    const ws = new window.WebSocket(TERMINAL_WS_URL);
+    let wsUrl = TERMINAL_WS_URL;
+    if (ownerUid && repoId) {
+      wsUrl = `${TERMINAL_WS_URL}?ownerUid=${encodeURIComponent(ownerUid)}&repoId=${encodeURIComponent(repoId)}`;
+    }
+    console.log("XTermTerminal connecting to", wsUrl);
+    const ws = new window.WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -111,7 +121,7 @@ export default function XTermTerminal() {
       term.dispose();
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [ownerUid, repoId]);
 
   return (
     <div style={{ width: "100%", height: "100%", background: "#0d1117" }}>

@@ -1,14 +1,30 @@
 import { WebSocketServer } from "ws";
 import pty from "node-pty";
 import path from "path";
+import fs from "fs";
+import os from "os";
 
 const PORT = process.env.TERMINAL_WS_PORT || 3001;
 const wss = new WebSocketServer({ port: PORT });
 
 wss.on("connection", (ws, req) => {
-  // Extrage repoId/workdir din query params
   const url = new URL(req.url, "http://localhost");
-  const workdir = url.searchParams.get("workdir") || process.cwd();
+  const ownerUid = url.searchParams.get("ownerUid");
+  const repoId = url.searchParams.get("repoId");
+  let workdir;
+
+  if (ownerUid && repoId) {
+    workdir = path.join(os.tmpdir(), "itec-workdirs", ownerUid, repoId);
+  } else {
+    workdir = url.searchParams.get("workdir") || process.cwd();
+  }
+
+  // Asigură directorul de lucru existent (izolare, fallback)
+  try {
+    fs.mkdirSync(workdir, { recursive: true });
+  } catch (err) {
+    console.error("Unable to create terminal workdir", err);
+  }
 
   // Alege shell-ul în funcție de platformă
   const shellCmd = process.platform === "win32" ? "powershell.exe" : "bash";
