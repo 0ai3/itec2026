@@ -2,16 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
-  Files,
-  Search,
-  Puzzle,
-  GitBranch,
-  Bug,
-  Terminal,
-  User,
-} from "lucide-react";
+import { LayoutDashboard, Search, Puzzle, User } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -27,6 +18,18 @@ export default function Sidebar() {
 
   return (
     <aside className="fixed left-0 top-0 z-50 flex h-screen w-14 flex-col bg-[#0d1117] border-r border-[#30363d]">
+      <div className="flex items-center justify-center h-12 border-b border-[#21262d]">
+        <Link
+          href="/"
+          className="group relative flex items-center justify-center"
+        >
+          <div className="h-7 w-7 rounded-md border border-[#30363d] bg-[#161b22] text-[#58a6ff] text-[11px] font-bold grid place-items-center">
+            iT
+          </div>
+          <span className={tooltip}>Home</span>
+        </Link>
+      </div>
+
       {/* TOP ICONS */}
       <div className="flex flex-col items-center pt-2">
         <Link
