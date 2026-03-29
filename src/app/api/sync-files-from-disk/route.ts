@@ -14,6 +14,9 @@ const SKIP_SYNC_DIRS = new Set([
 const getRepoWorkdirRoot = () =>
   process.env.ITEC_LOCAL_REPO_ROOT || process.env.ITEC_WORKDIR_ROOT || path.join(os.homedir(), 'itec-workdirs')
 
+const getLegacyTempRepoPath = (ownerUid: string, repoId: string) =>
+  path.join(os.tmpdir(), 'itec-workdirs', ownerUid, repoId)
+
 const getRepoWorkdir = (ownerUid: string, repoId: string) => {
   const explicit = process.env.ITEC_LOCAL_REPO_PATH
   if (explicit && explicit.trim()) {
@@ -30,9 +33,27 @@ const getRepoWorkdir = (ownerUid: string, repoId: string) => {
 
   const rootOwnerRepo = path.join(root, ownerUid, repoId)
   const rootRepo = path.join(root, repoId)
+  const legacyTempRepo = getLegacyTempRepoPath(ownerUid, repoId)
 
-  if (fsSync.existsSync(rootOwnerRepo)) return rootOwnerRepo
-  if (fsSync.existsSync(rootRepo)) return rootRepo
+  if (fsSync.existsSync(rootOwnerRepo) && fsSync.lstatSync(rootOwnerRepo).isDirectory()) return rootOwnerRepo
+  if (fsSync.existsSync(rootRepo) && fsSync.lstatSync(rootRepo).isDirectory()) return rootRepo
+  if (fsSync.existsSync(legacyTempRepo) && fsSync.lstatSync(legacyTempRepo).isDirectory()) return legacyTempRepo
+
+  // Fallback generic search în workspace dacă structura folderelor e variabilă
+  try {
+    const children = fsSync.readdirSync(root, { withFileTypes: true })
+    for (const child of children) {
+      if (!child.isDirectory()) continue
+      const candidate = path.join(root, child.name, repoId)
+      if (fsSync.existsSync(candidate) && fsSync.lstatSync(candidate).isDirectory()) return candidate
+      if (child.name.toLowerCase().includes(repoId.toLowerCase())) {
+        const candidate2 = path.join(root, child.name)
+        if (fsSync.existsSync(candidate2) && fsSync.lstatSync(candidate2).isDirectory()) return candidate2
+      }
+    }
+  } catch {
+    // ignore
+  }
 
   return rootOwnerRepo
 }
@@ -78,33 +99,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing ownerUid or repoId' }, { status: 400 })
     }
 
-    // Root local repo din mediu, altfel folosește calea persistenta din homes/itec-workdirs
-    const repoDiskPath = getRepoWorkdir(ownerUid, repoId)
+    // Root local repo din mediu, altfel folosește calea persistenta din homes/itec-workdirs sau temp legacy
+    let repoDiskPathToUse = getRepoWorkdir(ownerUid, repoId)
 
-    // Determinăm calea cea mai relevantă (explicit, owner's repo, root-repo, tmp fallback)
+    console.log('[SYNC] Using repoDiskPathToUse:', repoDiskPathToUse)
+    if (!fsSync.existsSync(repoDiskPathToUse) || !fsSync.lstatSync(repoDiskPathToUse).isDirectory()) {
+      console.warn('[SYNC] WARNING: repoDiskPathToUse does not exist or is not a directory:', repoDiskPathToUse)
+    }
+
     const defaultRoot = path.resolve(getRepoWorkdirRoot())
     const rootOwnerRepo = path.join(defaultRoot, ownerUid, repoId)
     const rootRepo = path.join(defaultRoot, repoId)
-    const tmpRepo = path.join(os.tmpdir(), 'itec-workdirs', ownerUid, repoId)
-
-    let repoDiskPathToUse = repoDiskPath
+    const legacyTempRepo = getLegacyTempRepoPath(ownerUid, repoId)
 
     if (!fsSync.existsSync(repoDiskPathToUse) || !fsSync.lstatSync(repoDiskPathToUse).isDirectory()) {
-      if (fsSync.existsSync(rootOwnerRepo)) repoDiskPathToUse = rootOwnerRepo
-      else if (fsSync.existsSync(rootRepo)) repoDiskPathToUse = rootRepo
-      else if (fsSync.existsSync(tmpRepo)) repoDiskPathToUse = tmpRepo
+      if (fsSync.existsSync(rootOwnerRepo) && fsSync.lstatSync(rootOwnerRepo).isDirectory()) repoDiskPathToUse = rootOwnerRepo
+      else if (fsSync.existsSync(rootRepo) && fsSync.lstatSync(rootRepo).isDirectory()) repoDiskPathToUse = rootRepo
+      else if (fsSync.existsSync(legacyTempRepo) && fsSync.lstatSync(legacyTempRepo).isDirectory()) repoDiskPathToUse = legacyTempRepo
+      else repoDiskPathToUse = rootOwnerRepo
     }
 
     await fs.mkdir(repoDiskPathToUse, { recursive: true })
 
     const entries = await fs.readdir(repoDiskPathToUse)
-    if (entries.length === 0 && repoDiskPathToUse !== tmpRepo) {
+    if (entries.length === 0 && repoDiskPathToUse !== legacyTempRepo) {
       try {
-        if (fsSync.existsSync(tmpRepo) && fsSync.lstatSync(tmpRepo).isDirectory()) {
-          const fallbackEntries = await fs.readdir(tmpRepo)
+        if (fsSync.existsSync(legacyTempRepo) && fsSync.lstatSync(legacyTempRepo).isDirectory()) {
+          const fallbackEntries = await fs.readdir(legacyTempRepo)
           if (fallbackEntries.length > 0) {
-            console.warn('Using fallback temp workdir for sync:', tmpRepo)
-            repoDiskPathToUse = tmpRepo
+            console.warn('Using fallback temp workdir for sync:', legacyTempRepo)
+            repoDiskPathToUse = legacyTempRepo
           }
         }
       } catch {
