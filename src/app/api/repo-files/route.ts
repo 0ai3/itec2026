@@ -109,7 +109,10 @@ export async function POST(request: Request) {
 
     if (action === 'save') {
       const filePath = getParam(body.filePath?.trim() ?? null, 'filePath')
-      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '', body.aiRanges ?? [], {
+      if (body.content === undefined) {
+        return NextResponse.json({ error: 'Missing content' }, { status: 400 })
+      }
+      await upsertRepoFile(ownerUid, repoId, filePath, body.content, body.aiRanges ?? [], {
         createVersion: body.createVersion ?? true,
       })
       return NextResponse.json({ ok: true })
@@ -117,7 +120,10 @@ export async function POST(request: Request) {
 
     if (action === 'create-file') {
       const filePath = getParam(body.filePath?.trim() ?? null, 'filePath')
-      await upsertRepoFile(ownerUid, repoId, filePath, body.content ?? '', body.aiRanges ?? [], {
+      if (body.content === undefined) {
+        return NextResponse.json({ error: 'Missing content' }, { status: 400 })
+      }
+      await upsertRepoFile(ownerUid, repoId, filePath, body.content, body.aiRanges ?? [], {
         createVersion: body.createVersion ?? (body.content?.length ? true : false),
       })
       const entries = await listRepoEntries(ownerUid, repoId)

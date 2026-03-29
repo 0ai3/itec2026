@@ -84,12 +84,27 @@ const withRuntimePath = (image: string, command: string) => {
 
 // ─── Workdir persistent per repo ────────────────────────────────────────────
 //
-// În loc să folosim /tmp (care e șters după fiecare run), păstrăm un director
-// stabil per repo: <os.tmpdir()>/itec-workdirs/<ownerUid>/<repoId>/
-// Astfel npm install scrie node_modules acolo și persistă între rulări.
+// În loc să folosim /tmp (care poate fi golit de OS), folosim un director
+// stabil per utilizator/proiect. În producție setați ITEC_WORKDIR_ROOT.
+// Default: $HOME/itec-workdirs/<ownerUid>/<repoId>
 //
-const getRepoWorkdir = (ownerUid: string, repoId: string) =>
-    path.join(os.tmpdir(), 'itec-workdirs', ownerUid, repoId)
+const getRepoWorkdirRoot = () =>
+    process.env.ITEC_LOCAL_REPO_ROOT || process.env.ITEC_WORKDIR_ROOT || path.join(os.homedir(), 'itec-workdirs')
+
+const getRepoWorkdir = (ownerUid: string, repoId: string) => {
+  const explicit = process.env.ITEC_LOCAL_REPO_PATH
+  if (explicit && explicit.trim()) {
+    return path.resolve(explicit.trim())
+  }
+
+  const root = path.resolve(getRepoWorkdirRoot())
+  if (path.basename(root).toLowerCase() === repoId.toLowerCase()) {
+    return root
+  }
+
+  // Default path includes owner/repo to preserve prior semantics.
+  return path.join(root, ownerUid, repoId)
+}
 
 // Sincronizează fișierele din DB în workdir-ul persistent.
 // Suprascrie doar fișierele de cod, NU atinge node_modules / .venv / target etc.

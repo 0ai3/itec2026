@@ -11,10 +11,33 @@ wss.on("connection", (ws, req) => {
   const url = new URL(req.url, "http://localhost");
   const ownerUid = url.searchParams.get("ownerUid");
   const repoId = url.searchParams.get("repoId");
+  const getRepoWorkdirRoot = () =>
+    process.env.ITEC_LOCAL_REPO_ROOT || process.env.ITEC_WORKDIR_ROOT || path.join(os.homedir(), "itec-workdirs")
+
+  const getRepoWorkdir = (ownerUid, repoId) => {
+    const explicit = process.env.ITEC_LOCAL_REPO_PATH
+    if (explicit && explicit.trim()) {
+      return path.resolve(explicit.trim())
+    }
+
+    const root = path.resolve(getRepoWorkdirRoot())
+    if (path.basename(root).toLowerCase() === repoId?.toLowerCase()) {
+      return root
+    }
+
+    const rootOwnerRepo = path.join(root, ownerUid, repoId)
+    const rootRepo = path.join(root, repoId)
+
+    if (fs.existsSync(rootOwnerRepo)) return rootOwnerRepo
+    if (fs.existsSync(rootRepo)) return rootRepo
+
+    return rootOwnerRepo
+  }
+
   let workdir;
 
   if (ownerUid && repoId) {
-    workdir = path.join(os.tmpdir(), "itec-workdirs", ownerUid, repoId);
+    workdir = getRepoWorkdir(ownerUid, repoId);
   } else {
     workdir = url.searchParams.get("workdir") || process.cwd();
   }

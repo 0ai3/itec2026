@@ -43,7 +43,9 @@ export default function ExplorerSyncBtn({ ownerUid, repoId }: { ownerUid: string
           margin: "10px 0",
           fontSize: 12,
           cursor: loading ? "not-allowed" : "pointer",
-          width: "90%",
+          width: "auto",
+          minWidth: 96,
+          whiteSpace: "nowrap",
         }}
         title="Sync files from disk to explorer"
       >

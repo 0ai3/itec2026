@@ -35,7 +35,12 @@ export default function XTermTerminal({ ownerUid, repoId }: XTermTerminalProps) 
     term.focus();
 
     // Funcție sigură de resize
+    let disposed = false
+    let startupResizeTimeout: number | null = null
+    let lateResizeTimeout: number | null = null
+
     const resizeTerminal = () => {
+      if (disposed) return
       if (xtermRef.current && term) {
         const width = xtermRef.current.offsetWidth;
         const height = xtermRef.current.offsetHeight;
@@ -50,7 +55,7 @@ export default function XTermTerminal({ ownerUid, repoId }: XTermTerminalProps) 
             const rows = Math.max(5, Math.floor(height / 18));
             term.resize(cols, rows);
           } catch (e) {
-            // Ignoră erorile de resize
+            // Ignoră erorile de resize (ex. component deja disposed)
           }
         }
       }
@@ -59,7 +64,7 @@ export default function XTermTerminal({ ownerUid, repoId }: XTermTerminalProps) 
     resizeObserver.observe(xtermRef.current);
 
     // Trigger resize la montare (dar doar dacă are dimensiuni nenule)
-    setTimeout(resizeTerminal, 0);
+    startupResizeTimeout = window.setTimeout(resizeTerminal, 0);
 
     // WebSocket
     let wsUrl = TERMINAL_WS_URL;
@@ -106,19 +111,29 @@ export default function XTermTerminal({ ownerUid, repoId }: XTermTerminalProps) 
     });
 
     // Trigger resize la montare (pentru a evita bugul inițial)
-    setTimeout(() => {
-      if (xtermRef.current) {
-        const width = xtermRef.current.offsetWidth;
-        const height = xtermRef.current.offsetHeight;
-        const cols = Math.max(20, Math.floor(width / 9));
-        const rows = Math.max(5, Math.floor(height / 18));
+    lateResizeTimeout = window.setTimeout(() => {
+      if (disposed || !xtermRef.current) return
+      const width = xtermRef.current.offsetWidth;
+      const height = xtermRef.current.offsetHeight;
+      const cols = Math.max(20, Math.floor(width / 9));
+      const rows = Math.max(5, Math.floor(height / 18));
+      try {
         term.resize(cols, rows);
+      } catch (e) {
+        // ignore
       }
     }, 0);
 
     return () => {
+      disposed = true
+      if (startupResizeTimeout !== null) window.clearTimeout(startupResizeTimeout)
+      if (lateResizeTimeout !== null) window.clearTimeout(lateResizeTimeout)
       ws.close();
-      term.dispose();
+      try {
+        term.dispose();
+      } catch (e) {
+        // ignore
+      }
       resizeObserver.disconnect();
     };
   }, [ownerUid, repoId]);
