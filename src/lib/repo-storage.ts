@@ -32,10 +32,28 @@ export const resolveRepoPath = (ownerUid: string, repoId: string, relativePath =
   return { repoRoot, safeRelative, targetPath }
 }
 
+
+// Curăță complet folderul repo (șterge tot, cu excepția celor permise)
+const ALLOWED_ON_EMPTY_REPO = new Set(["README.md", ".gitignore"]);
+async function cleanRepoRoot(repoRoot: string) {
+  let entries = [];
+  try {
+    entries = await fs.readdir(repoRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (ALLOWED_ON_EMPTY_REPO.has(entry.name)) continue;
+    const entryPath = path.join(repoRoot, entry.name);
+    await fs.rm(entryPath, { recursive: true, force: true });
+  }
+}
+
 export const ensureRepoRoot = async (ownerUid: string, repoId: string) => {
-  const repoRoot = getRepoRootPath(ownerUid, repoId)
-  await fs.mkdir(repoRoot, { recursive: true })
-  return repoRoot
+  const repoRoot = getRepoRootPath(ownerUid, repoId);
+  await fs.mkdir(repoRoot, { recursive: true });
+  await cleanRepoRoot(repoRoot);
+  return repoRoot;
 }
 
 export type RepoFileNode = {
@@ -49,7 +67,23 @@ export const buildRepoTree = async (repoRoot: string, baseRelative = ''): Promis
   const currentDir = baseRelative ? path.join(repoRoot, baseRelative) : repoRoot
   let entries = await fs.readdir(currentDir, { withFileTypes: true })
 
-  entries = entries.filter((entry) => !entry.name.startsWith('.'))
+  entries = entries.filter((entry) => 
+    !entry.name.startsWith('.') && 
+    entry.name !== 'node_modules' && 
+    entry.name !== '.next' && 
+    entry.name !== '.git' && 
+    entry.name !== '.cache' && 
+    entry.name !== 'dist' && 
+    entry.name !== 'build' && 
+    entry.name !== 'out' && 
+    entry.name !== 'target' && 
+    entry.name !== '.parcel-cache' && 
+    entry.name !== '.vite' && 
+    entry.name !== 'venv' && 
+    entry.name !== '.venv' && 
+    entry.name !== 'tmp' && 
+    entry.name !== 'temp'
+  )
 
   const nodes: RepoFileNode[] = []
 
