@@ -25,6 +25,33 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+body.easter-rainbow::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 85;
+  background: linear-gradient(
+    120deg,
+    rgba(248, 81, 73, 0.08),
+    rgba(227, 179, 65, 0.08),
+    rgba(63, 185, 80, 0.08),
+    rgba(88, 166, 255, 0.08),
+    rgba(139, 108, 217, 0.08)
+  );
+  background-size: 300% 300%;
+  animation: easter-rainbow-flow 2.2s linear infinite;
+}
+
+@keyframes easter-rainbow-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
 .monaco-editor .ai-generated-code-bg {
   background: rgba(167, 139, 250, 0.2);
   border-radius: 2px;
