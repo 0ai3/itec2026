@@ -24,6 +24,7 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import Editor, { type AiRange } from "@/components/editor";
 import { auth, db } from "@/lib/firebase";
 import SyncedTerminal from "@/components/synced-terminal";
+import ExplorerSyncBtn from "@/components/explorer-sync-btn";
 import RepoChat from "@/components/repo-chat";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
@@ -223,16 +224,26 @@ function FileIcon({ name }: { name: string }) {
   );
 }
 
-/* ─── FileTree ───────────────────────────────────────────────────────────── */
+
+/* ─── Explorer Sync Button Wrapper ───────────────────────────────────────── */
+function ExplorerSyncWrapper({ ownerUid, repoId }: { ownerUid: string, repoId: string }) {
+  // Sincronizează doar din folderul dedicat repo-ului (izolare ca pe cloud)
+  const repoDiskPath = `C:/Users/Petri/Documents/GitHub/itec2026/repos/${repoId}`;
+  return <ExplorerSyncBtn ownerUid={ownerUid} repoId={repoId} repoDiskPath={repoDiskPath} />;
+}
 
 function FileTree({
   nodes, selectedFilePath, selectedFolderPath,
   onSelectFile, onSelectFolder, onDropFilesToFolder,
   onDropEntryToFolder, onDragHoverFolder, isMoveAlreadyTriggered,
   getActiveDragEntry, onDragEntryStart, onDragEntryEnd, onOpenContextMenu, depth = 0,
+  ownerUid, repoId
 }: {
-  nodes: RepoFileNode[]; selectedFilePath: string | null; selectedFolderPath: string;
-  onSelectFile: (p: string) => void; onSelectFolder: (p: string) => void;
+  nodes: RepoFileNode[];
+  selectedFilePath: string | null;
+  selectedFolderPath: string;
+  onSelectFile: (p: string) => void;
+  onSelectFolder: (p: string) => void;
   onDropFilesToFolder: (folder: string, files: File[]) => void;
   onDropEntryToFolder: (entryPath: string, entryType: "file" | "directory", folderPath: string) => void;
   onDragHoverFolder: (folderPath: string) => void;
@@ -242,6 +253,8 @@ function FileTree({
   onDragEntryEnd: () => void;
   onOpenContextMenu: (event: React.MouseEvent<HTMLElement>, entryPath: string, entryType: "file" | "directory") => void;
   depth?: number;
+  ownerUid: string | null;
+  repoId: string;
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -262,61 +275,76 @@ function FileTree({
   };
 
   return (
-    <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-      {nodes.map((node) => {
-        if (node.type === "directory") {
-          const isOpen = !collapsed[node.path];
-          return (
-            <li key={node.path}>
-              <div
-                data-repo-drop-target="folder" data-repo-path={node.path}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); onDragHoverFolder(node.path); const p = getActiveDragEntry() ?? getExplorerDragPayload(e.dataTransfer); e.dataTransfer.dropEffect = p ? "move" : "copy"; }}
-                onDrop={(e) => handleDrop(e, node.path)}
-              >
-                <button type="button" draggable
-                  onDragStart={(e) => handleDragStart(e, node.path, "directory")}
+    <>
+      {/* Butonul de sync deasupra listei de fișiere */}
+      <ExplorerSyncWrapper ownerUid={ownerUid ?? ''} repoId={repoId} />
+      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {nodes.map((node) => {
+          if (node.type === "directory") {
+            const isOpen = !collapsed[node.path];
+            return (
+              <li key={node.path}>
+                <div
+                  data-repo-drop-target="folder" data-repo-path={node.path}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); onDragHoverFolder(node.path); const p = getActiveDragEntry() ?? getExplorerDragPayload(e.dataTransfer); e.dataTransfer.dropEffect = p ? "move" : "copy"; }}
                   onDrop={(e) => handleDrop(e, node.path)}
-                  onClick={() => { setCollapsed(prev => ({ ...prev, [node.path]: isOpen })); onSelectFolder(node.path); }}
-                  onContextMenu={(e) => onOpenContextMenu(e, node.path, "directory")}
-                  style={{ display: "flex", alignItems: "center", gap: 5, width: "100%", background: selectedFolderPath === node.path ? "rgba(88,166,255,0.06)" : "transparent", border: "none", color: "#8b949e", cursor: "pointer", padding: `3px 8px 3px ${8 + depth * 12}px`, fontSize: 12, textAlign: "left", borderRadius: 3, transition: "background 0.1s" }}
                 >
-                  <span style={{ fontSize: 9, color: "#484f58", minWidth: 10 }}>{isOpen ? "▾" : "▸"}</span>
-                  <span style={{ fontSize: 10, minWidth: 16, textAlign: "center" }}>📁</span>
-                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{node.name}</span>
-                </button>
-                {isOpen && node.children?.length ? (
-                  <FileTree nodes={node.children} selectedFilePath={selectedFilePath} selectedFolderPath={selectedFolderPath}
-                    onSelectFile={onSelectFile} onSelectFolder={onSelectFolder} onDropFilesToFolder={onDropFilesToFolder}
-                    onDropEntryToFolder={onDropEntryToFolder} onDragHoverFolder={onDragHoverFolder}
-                    isMoveAlreadyTriggered={isMoveAlreadyTriggered} getActiveDragEntry={getActiveDragEntry}
-                    onDragEntryStart={onDragEntryStart} onDragEntryEnd={onDragEntryEnd}
-                    onOpenContextMenu={onOpenContextMenu} depth={depth + 1} />
-                ) : null}
-              </div>
+                  <button type="button" draggable
+                    onDragStart={(e) => handleDragStart(e, node.path, "directory")}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); onDragHoverFolder(node.path); const p = getActiveDragEntry() ?? getExplorerDragPayload(e.dataTransfer); e.dataTransfer.dropEffect = p ? "move" : "copy"; }}
+                    onDrop={(e) => handleDrop(e, node.path)}
+                    onClick={() => { setCollapsed(prev => ({ ...prev, [node.path]: isOpen })); onSelectFolder(node.path); }}
+                    onContextMenu={(e) => onOpenContextMenu(e, node.path, "directory")}
+                    style={{ display: "flex", alignItems: "center", gap: 5, width: "100%", background: selectedFolderPath === node.path ? "rgba(88,166,255,0.06)" : "transparent", border: "none", color: "#8b949e", cursor: "pointer", padding: `3px 8px 3px ${8 + depth * 12}px`, fontSize: 12, textAlign: "left", borderRadius: 3, transition: "background 0.1s" }}
+                  >
+                    <span style={{ fontSize: 9, color: "#484f58", minWidth: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                    <span style={{ fontSize: 10, minWidth: 16, textAlign: "center" }}>📁</span>
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{node.name}</span>
+                  </button>
+                  {isOpen && node.children?.length ? (
+                    <FileTree
+                      nodes={node.children}
+                      selectedFilePath={selectedFilePath}
+                      selectedFolderPath={selectedFolderPath}
+                      onSelectFile={onSelectFile}
+                      onSelectFolder={onSelectFolder}
+                      onDropFilesToFolder={onDropFilesToFolder}
+                      onDropEntryToFolder={onDropEntryToFolder}
+                      onDragHoverFolder={onDragHoverFolder}
+                      isMoveAlreadyTriggered={isMoveAlreadyTriggered}
+                      getActiveDragEntry={getActiveDragEntry}
+                      onDragEntryStart={onDragEntryStart}
+                      onDragEntryEnd={onDragEntryEnd}
+                      onOpenContextMenu={onOpenContextMenu}
+                      depth={depth + 1}
+                      ownerUid={ownerUid ?? ''}
+                      repoId={repoId}
+                    />
+                  ) : null}
+                </div>
+              </li>
+            );
+          }
+          const isSelected = selectedFilePath === node.path;
+          return (
+            <li key={node.path}>
+              <button type="button" draggable
+                onDragStart={(e) => handleDragStart(e, node.path, "file")}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); onDragHoverFolder(getParentFolderPath(node.path)); const p = getActiveDragEntry() ?? getExplorerDragPayload(e.dataTransfer); e.dataTransfer.dropEffect = p ? "move" : "copy"; }}
+                onDrop={(e) => handleDrop(e, getParentFolderPath(node.path))}
+                data-repo-drop-target="file" data-repo-path={node.path}
+                onClick={() => onSelectFile(node.path)}
+                onContextMenu={(e) => onOpenContextMenu(e, node.path, "file")}
+                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", background: isSelected ? "rgba(88,166,255,0.08)" : "transparent", border: "none", borderLeft: isSelected ? "2px solid #388bfd" : "2px solid transparent", color: isSelected ? "#e6edf3" : "#6e7681", cursor: "pointer", padding: `3px 8px 3px ${6 + depth * 12}px`, fontSize: 12, textAlign: "left", transition: "background 0.1s, color 0.1s" }}
+              >
+                <FileIcon name={node.name} />
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{node.name}</span>
+              </button>
             </li>
           );
-        }
-
-        const isSelected = selectedFilePath === node.path;
-        return (
-          <li key={node.path}>
-            <button type="button" draggable
-              onDragStart={(e) => handleDragStart(e, node.path, "file")}
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); onDragHoverFolder(getParentFolderPath(node.path)); const p = getActiveDragEntry() ?? getExplorerDragPayload(e.dataTransfer); e.dataTransfer.dropEffect = p ? "move" : "copy"; }}
-              onDrop={(e) => handleDrop(e, getParentFolderPath(node.path))}
-              data-repo-drop-target="file" data-repo-path={node.path}
-              onClick={() => onSelectFile(node.path)}
-              onContextMenu={(e) => onOpenContextMenu(e, node.path, "file")}
-              style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", background: isSelected ? "rgba(88,166,255,0.08)" : "transparent", border: "none", borderLeft: isSelected ? "2px solid #388bfd" : "2px solid transparent", color: isSelected ? "#e6edf3" : "#6e7681", cursor: "pointer", padding: `3px 8px 3px ${6 + depth * 12}px`, fontSize: 12, textAlign: "left", transition: "background 0.1s, color 0.1s" }}
-            >
-              <FileIcon name={node.name} />
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{node.name}</span>
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+        })}
+      </ul>
+    </>
   );
 }
 
@@ -1008,13 +1036,23 @@ export default function RepoEditorPage() {
             ) : fileTree.length === 0 ? (
               <p style={{ fontSize: 11, color: C.muted, padding: "8px 12px", lineHeight: 1.6 }}>No files yet.<br />Drop files or click +</p>
             ) : (
-              <FileTree nodes={fileTree} selectedFilePath={selectedFilePath} selectedFolderPath={selectedFolderPath}
+              <FileTree
+                nodes={fileTree}
+                selectedFilePath={selectedFilePath}
+                selectedFolderPath={selectedFolderPath}
                 onSelectFile={(p) => { setSelectedFilePath(p); setSelectedFolderPath(getParentFolderPath(p)); }}
-                onSelectFolder={setSelectedFolderPath} onDropFilesToFolder={handleDropFilesToFolder}
-                onDropEntryToFolder={handleDropEntryToFolder} onDragHoverFolder={handleDragHoverFolder}
-                isMoveAlreadyTriggered={isMoveAlreadyTriggered} getActiveDragEntry={getActiveDragEntry}
-                onDragEntryStart={handleDragEntryStart} onDragEntryEnd={handleDragEntryEnd}
-                onOpenContextMenu={handleOpenContextMenu} />
+                onSelectFolder={setSelectedFolderPath}
+                onDropFilesToFolder={handleDropFilesToFolder}
+                onDropEntryToFolder={handleDropEntryToFolder}
+                onDragHoverFolder={handleDragHoverFolder}
+                isMoveAlreadyTriggered={isMoveAlreadyTriggered}
+                getActiveDragEntry={getActiveDragEntry}
+                onDragEntryStart={handleDragEntryStart}
+                onDragEntryEnd={handleDragEntryEnd}
+                onOpenContextMenu={handleOpenContextMenu}
+                ownerUid={ownerUid ?? ""}
+                repoId={repoId}
+              />
             )}
           </div>
         </div>
@@ -1093,7 +1131,7 @@ export default function RepoEditorPage() {
                 onMouseEnter={e => (e.currentTarget.style.background = C.accent)}
                 onMouseLeave={e => (e.currentTarget.style.background = "transparent")} />
               <div style={{ height: terminal.size, minHeight: terminal.size, borderTop: `1px solid ${C.border}`, flexShrink: 0, overflow: "hidden" }}>
-                <SyncedTerminal roomId={collaborationRoomId} ownerUid={ownerUid} repoId={repoId} defaultImage={runtimeDefaults.image} defaultCommand={runtimeDefaults.command} />
+                <SyncedTerminal roomId={collaborationRoomId} ownerUid={ownerUid} repoId={repoId} />
               </div>
             </>
           )}

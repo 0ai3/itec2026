@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { Writable } from 'node:stream'
 import { NextResponse } from 'next/server'
-import { ensureRepoInitialized, listRepoEntries } from '@/lib/repo-db-storage'
+import { ensureRepoInitialized, listRepoEntries, upsertRepoFile } from '@/lib/repo-db-storage'
 import { ESLint } from 'eslint'
 // @ts-expect-error - plugin package does not provide default export typings
 import pluginSecurity from 'eslint-plugin-security'
@@ -19,12 +19,11 @@ type ExecuteBody = {
     command?: string
     image?: string
     stdin?: string
+    useWorkdir?: boolean
 }
 
 const getRequired = (value: string | undefined, name: string) => {
-    if (!value || !value.trim()) {
-        throw new Error(`Missing ${name}`)
-    }
+    if (!value || !value.trim()) throw new Error(`Missing ${name}`)
     return value.trim()
 }
 
@@ -44,7 +43,7 @@ const pullImageIfMissing = async (image: string) => {
         await docker.getImage(image).inspect()
         return
     } catch {
-        // Imaginea nu există, continuăm cu descărcarea
+        // Imaginea nu există, o descărcăm
     }
 
     const pullStream = await new Promise<NodeJS.ReadableStream>((resolve, reject) => {
@@ -77,22 +76,48 @@ const withRuntimePath = (image: string, command: string) => {
     if (lower.startsWith('rust:') || lower.includes('/rust:')) {
         return `export PATH=/usr/local/cargo/bin:$PATH; ${command}`
     }
-
     if (lower.startsWith('golang:') || lower.includes('/golang:')) {
         return `export PATH=/usr/local/go/bin:$PATH; ${command}`
     }
-
     return command
 }
 
-const writeWorkspaceFromDb = async (ownerUid: string, repoId: string) => {
+// ─── Workdir persistent per repo ────────────────────────────────────────────
+//
+// În loc să folosim /tmp (care e șters după fiecare run), păstrăm un director
+// stabil per repo: <os.tmpdir()>/itec-workdirs/<ownerUid>/<repoId>/
+// Astfel npm install scrie node_modules acolo și persistă între rulări.
+//
+const getRepoWorkdir = (ownerUid: string, repoId: string) =>
+    path.join(os.tmpdir(), 'itec-workdirs', ownerUid, repoId)
+
+// Sincronizează fișierele din DB în workdir-ul persistent.
+// Suprascrie doar fișierele de cod, NU atinge node_modules / .venv / target etc.
+const SKIP_SYNC_DIRS = new Set([
+    'node_modules',
+    '.venv',
+    'venv',
+    '__pycache__',
+    'target',      // Rust
+    '.gradle',
+    'dist',
+    'build',
+    '.next',
+])
+
+const syncDbToWorkdir = async (ownerUid: string, repoId: string, workdir: string) => {
     await ensureRepoInitialized(ownerUid, repoId)
     const entries = await listRepoEntries(ownerUid, repoId)
 
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'itec-repo-'))
+    await fs.mkdir(workdir, { recursive: true })
 
     for (const entry of entries) {
-        const targetPath = path.join(tempRoot, entry.path)
+        // Sare peste directoarele generate (node_modules etc.)
+        const topLevel = entry.path.split('/')[0]
+        if (topLevel && SKIP_SYNC_DIRS.has(topLevel)) continue
+
+        const targetPath = path.join(workdir, entry.path)
+
         if (entry.type === 'directory') {
             await fs.mkdir(targetPath, { recursive: true })
             continue
@@ -101,49 +126,111 @@ const writeWorkspaceFromDb = async (ownerUid: string, repoId: string) => {
         await fs.mkdir(path.dirname(targetPath), { recursive: true })
         await fs.writeFile(targetPath, entry.content ?? '', 'utf8')
     }
-
-    return tempRoot
 }
 
-// PAZNICUL DE SECURITATE (SAST)
+// După rularea unor comenzi care modifică fișierele (npm install generează
+// package-lock.json, pip freeze etc.), sincronizăm înapoi în DB fișierele
+// relevante (excludem node_modules).
+const SYNC_BACK_EXTENSIONS = new Set([
+    '.json',        // package.json, package-lock.json, tsconfig etc.
+    '.lock',        // yarn.lock, Cargo.lock, Pipfile.lock
+    '.toml',        // Cargo.toml, pyproject.toml
+    '.txt',         // requirements.txt
+    '.mod',         // go.mod
+    '.sum',         // go.sum
+    '.yaml', '.yml',
+])
+
+const shouldSyncBackFile = (filePath: string): boolean => {
+    const topLevel = filePath.split('/')[0]
+    if (topLevel && SKIP_SYNC_DIRS.has(topLevel)) return false
+    const ext = path.extname(filePath).toLowerCase()
+    return SYNC_BACK_EXTENSIONS.has(ext)
+}
+
+const syncWorkdirToDb = async (ownerUid: string, repoId: string, workdir: string) => {
+    const walk = async (dir: string, base: string): Promise<void> => {
+        let entries: string[]
+        try {
+            entries = await fs.readdir(dir)
+        } catch {
+            return
+        }
+
+        for (const name of entries) {
+            if (SKIP_SYNC_DIRS.has(name)) continue
+
+            const fullPath = path.join(dir, name)
+            const relPath = path.relative(base, fullPath)
+
+            let stat: Awaited<ReturnType<typeof fs.stat>>
+            try {
+                stat = await fs.stat(fullPath)
+            } catch {
+                continue
+            }
+
+            if (stat.isDirectory()) {
+                await walk(fullPath, base)
+            } else if (shouldSyncBackFile(relPath)) {
+                try {
+                    const content = await fs.readFile(fullPath, 'utf8')
+                    await upsertRepoFile(ownerUid, repoId, relPath, content, [], {
+                        createVersion: false,
+                    })
+                } catch {
+                    // Ignorăm fișierele binare sau cele inaccesibile
+                }
+            }
+        }
+    }
+
+    await walk(workdir, workdir)
+}
+
+// ─── Comenzi care modifică starea repo-ului (necesită sync-back) ────────────
+const isStateChangingCommand = (command: string) =>
+    /^(npm|npx|pnpm|yarn)\s+(install|i|add|remove|uninstall|update|init)\b/.test(command) ||
+    /^(pip|pip3)\s+(install|uninstall|freeze)\b/.test(command) ||
+    /^(cargo)\s+(add|install|build|fetch)\b/.test(command) ||
+    /^(go)\s+(get|mod|tidy|download)\b/.test(command)
+
+// ─── SAST ────────────────────────────────────────────────────────────────────
 async function scanJavaScriptCode(code: string) {
     const eslint = new ESLint({
         overrideConfigFile: true,
         overrideConfig: [{
             plugins: { security: pluginSecurity },
             languageOptions: {
-                ecmaVersion: "latest",
-                sourceType: "module",
+                ecmaVersion: 'latest',
+                sourceType: 'module',
             },
             rules: {
                 'no-eval': 'error',
                 'no-implied-eval': 'error',
                 'security/detect-eval-with-expression': 'error',
-                'security/detect-child-process': 'error', // Fără execuții de terminal
-                'security/detect-non-literal-fs-filename': 'error', // Fără citire de fișiere de sistem sensibile
-                'no-restricted-imports': ['error', 'child_process', 'node:child_process', 'fs', 'node:fs']
+                'security/detect-child-process': 'error',
+                'security/detect-non-literal-fs-filename': 'error',
+                'no-restricted-imports': ['error', 'child_process', 'node:child_process', 'fs', 'node:fs'],
             },
         }],
-    });
+    })
 
-    const results = await eslint.lintText(code);
-    
-    // Extragem doar erorile (ignorăm warning-urile)
-    const errors = results[0]?.messages.filter(msg => msg.severity === 2) || [];
-    
+    const results = await eslint.lintText(code)
+    const errors = results[0]?.messages.filter(msg => msg.severity === 2) ?? []
+
     if (errors.length > 0) {
-        // Formăm un mesaj frumos cu toate problemele găsite
-        const errorMessages = errors.map(e => `Linia ${e.line}: ${e.message}`).join('\n');
-        return errorMessages;
+        const errorMessages = errors.map(e => `Linia ${e.line}: ${e.message}`).join('\n')
+        return errorMessages
     }
-    
-    return null; // Null înseamnă că e "Curat", putem rula!
+
+    return null
 }
 
+// ─── Handler principal ───────────────────────────────────────────────────────
 export async function POST(req: Request) {
     let containerForCleanup: Docker.Container | null = null
-    let timeoutId: NodeJS.Timeout | undefined // Adăugat pentru a preveni memory leaks
-    let tempRepoRoot: string | null = null
+    let timeoutId: NodeJS.Timeout | undefined
 
     try {
         const body = (await req.json()) as ExecuteBody
@@ -155,32 +242,34 @@ export async function POST(req: Request) {
 
         await ensureDockerAvailable()
         await pullImageIfMissing(image)
-        tempRepoRoot = await writeWorkspaceFromDb(ownerUid, repoId)
 
-        // --- EXECUTĂM SCANAREA DE SECURITATE ---
+        // ── Pregătim workdir-ul persistent ──────────────────────────────────
+        const workdir = getRepoWorkdir(ownerUid, repoId)
+        await syncDbToWorkdir(ownerUid, repoId, workdir)
+
+        // ── Scanare de securitate SAST ────────────────────────────────────────
         if (image.includes('node') || image.includes('deno')) {
-            const filePathMatch = command.match(/["']?([^"']+\.(?:js|ts|jsx|tsx))["']?$/i);
+            const filePathMatch = command.match(/["']?([^"']+\.(?:js|ts|jsx|tsx))["']?$/i)
 
             if (filePathMatch) {
-                const fullPath = path.join(tempRepoRoot, filePathMatch[1])
-
+                const fullPath = path.join(workdir, filePathMatch[1])
                 try {
-                    const codeToScan = await fs.readFile(fullPath, 'utf8');
-                    const securityAlerts = await scanJavaScriptCode(codeToScan);
+                    const codeToScan = await fs.readFile(fullPath, 'utf8')
+                    const securityAlerts = await scanJavaScriptCode(codeToScan)
 
                     if (securityAlerts) {
                         return NextResponse.json({
-                            error: "Executie blocata din motive de securitate!",
-                            output: `🛡️ Alerta de securitate:\n\n${securityAlerts}`
-                        }, { status: 403 });
+                            error: 'Executie blocata din motive de securitate!',
+                            output: `🛡️ Alerta de securitate:\n\n${securityAlerts}`,
+                        }, { status: 403 })
                     }
-                } catch (e) {
-                    console.log("Nu am putut citi fisierul pt scanare", e);
+                } catch {
+                    // Nu am putut citi fișierul pentru scanare, continuăm
                 }
             }
         }
-        // --- SFÂRȘIT SCANARE ---
 
+        // ── Rulăm în Docker ───────────────────────────────────────────────────
         let outputData = ''
         const outputStream = new Writable({
             write(chunk, _encoding, next) {
@@ -190,7 +279,9 @@ export async function POST(req: Request) {
         })
 
         const wrappedCommand = withRuntimePath(image, buildShellCommand(command, stdin))
-        const needsExtendedTimeout = /\b(apt-get|apk\s+add)\b/i.test(command)
+        const needsExtendedTimeout =
+            /\b(apt-get|apk\s+add)\b/i.test(command) ||
+            isStateChangingCommand(command)
         const TIMEOUT_MS = needsExtendedTimeout ? 120_000 : 30_000
 
         const runPromise = async () => {
@@ -199,14 +290,19 @@ export async function POST(req: Request) {
                 Cmd: ['sh', '-lc', wrappedCommand],
                 WorkingDir: '/workspace',
                 HostConfig: {
-                    AutoRemove: false, // Colegul a dezactivat AutoRemove ca să îl șteargă forțat în finally
-                    Binds: [`${tempRepoRoot}:/workspace`],
+                    AutoRemove: false,
+                    // ── CHEIA: montăm workdir-ul persistent, nu un folder temporar ──
+                    Binds: [`${workdir}:/workspace`],
                     Memory: 256 * 1024 * 1024,
                     NanoCpus: 2_000_000_000,
                 },
             })
 
-            const stream = await containerForCleanup.attach({ stream: true, stdout: true, stderr: true })
+            const stream = await containerForCleanup.attach({
+                stream: true,
+                stdout: true,
+                stderr: true,
+            })
             containerForCleanup.modem.demuxStream(stream, outputStream, outputStream)
 
             await containerForCleanup.start()
@@ -226,6 +322,16 @@ export async function POST(req: Request) {
         if (timeoutId) clearTimeout(timeoutId)
 
         const statusCode = result?.StatusCode ?? 0
+
+        // ── Dacă comanda a modificat starea repo-ului, salvăm înapoi în DB ──
+        // (ex: package-lock.json generat de npm install)
+        if (isStateChangingCommand(command)) {
+            try {
+                await syncWorkdirToDb(ownerUid, repoId, workdir)
+            } catch {
+                // Sync-back eșuat — nu blocăm răspunsul
+            }
+        }
 
         return NextResponse.json({
             output: outputData.trim(),
@@ -251,22 +357,13 @@ export async function POST(req: Request) {
                 : message.includes('Docker is not available')
                   ? 503
                   : 500
-                  
+
         return NextResponse.json({ error: message, output: message }, { status })
     } finally {
-        // Curățarea agresivă adăugată de colegul tău
+        // Curățăm containerul dar NU workdir-ul — acesta persistă între rulări
         if (containerForCleanup) {
             try {
                 await (containerForCleanup as Docker.Container).remove({ force: true })
-            } catch {
-                // Ignorăm
-            }
-        }
-
-        // Curățarea fișierelor tale
-        if (tempRepoRoot) {
-            try {
-                await fs.rm(tempRepoRoot, { recursive: true, force: true })
             } catch {
                 // Ignorăm
             }
