@@ -226,11 +226,6 @@ function FileIcon({ name }: { name: string }) {
 
 
 /* ─── Explorer Sync Button Wrapper ───────────────────────────────────────── */
-function ExplorerSyncWrapper({ ownerUid, repoId }: { ownerUid: string, repoId: string }) {
-  // Sincronizare pe folderul dedicat repo-ului la server (doar conținutul repo-ului)
-  return <ExplorerSyncBtn ownerUid={ownerUid} repoId={repoId} />;
-}
-
 function FileTree({
   nodes, selectedFilePath, selectedFolderPath,
   onSelectFile, onSelectFolder, onDropFilesToFolder,
@@ -275,8 +270,6 @@ function FileTree({
 
   return (
     <>
-      {/* Butonul de sync deasupra listei de fișiere */}
-      <ExplorerSyncWrapper ownerUid={ownerUid ?? ''} repoId={repoId} />
       <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
         {nodes.map((node) => {
           if (node.type === "directory") {
@@ -334,10 +327,12 @@ function FileTree({
                 data-repo-drop-target="file" data-repo-path={node.path}
                 onClick={() => onSelectFile(node.path)}
                 onContextMenu={(e) => onOpenContextMenu(e, node.path, "file")}
-                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", background: isSelected ? "rgba(88,166,255,0.08)" : "transparent", border: "none", borderLeft: isSelected ? "2px solid #388bfd" : "2px solid transparent", color: isSelected ? "#e6edf3" : "#6e7681", cursor: "pointer", padding: `3px 8px 3px ${6 + depth * 12}px`, fontSize: 12, textAlign: "left", transition: "background 0.1s, color 0.1s" }}
+                title={node.path}
+                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", background: isSelected ? "rgba(88,166,255,0.08)" : "transparent", border: "none", borderLeft: isSelected ? "2px solid #388bfd" : "2px solid transparent", color: isSelected ? "#e6edf3" : "#8f9ba7", cursor: "pointer", padding: `3px 8px 3px ${6 + depth * 12}px`, fontSize: 12, textAlign: "left", transition: "background 0.1s, color 0.1s" }}
               >
                 <FileIcon name={node.name} />
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{node.name}</span>
+                <span style={{ fontSize: 9, color: "#484f58", marginLeft: 6 }}>{getParentFolderPath(node.path)}</span>
               </button>
             </li>
           );
@@ -1019,7 +1014,8 @@ export default function RepoEditorPage() {
         <div style={{ width: sidebar.size, minWidth: sidebar.size, display: "flex", flexDirection: "column", borderRight: `1px solid ${C.border}`, background: C.surface, overflow: "hidden", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: C.muted, letterSpacing: "0.12em", textTransform: "uppercase" }}>Explorer</span>
-            <div style={{ display: "flex", gap: 2 }}>
+            <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
+              <ExplorerSyncBtn ownerUid={ownerUid ?? ""} repoId={repoId} />
               {[{ title: "New file", label: "+", onClick: handleCreateFile }, { title: "New folder", label: "📁", onClick: handleCreateFolder }, { title: "Refresh", label: "↻", onClick: () => void loadFileTree() }].map(btn => (
                 <button key={btn.title} onClick={btn.onClick} title={btn.title}
                   style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 13, padding: "1px 4px", lineHeight: 1, borderRadius: 3, transition: "color 0.1s" }}
